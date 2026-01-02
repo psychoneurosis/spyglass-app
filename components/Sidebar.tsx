@@ -48,14 +48,26 @@ interface SidebarProps {
   investigatorName?: string;
   sources?: { id: string; name: string; content: string; type: string }[];
   onUpdateSources?: (sources: { id: string; name: string; content: string; type: string }[]) => void;
+  onSwitchCase?: () => void;
+  onLogout?: () => void;
+  defaultOpenIngest?: boolean;
 }
 
-export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrganize, onExport, caseInfo, existingLabels = [], onDraftBriefing, onToggleTimeline, onUndo, nodes = [], edges = [], investigatorName, sources = [], onUpdateSources }: SidebarProps) {
+export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrganize, onExport, caseInfo, existingLabels = [], onDraftBriefing, onToggleTimeline, onUndo, nodes = [], edges = [], investigatorName, sources = [], onUpdateSources, onSwitchCase: onSwitchCaseProp, onLogout, defaultOpenIngest = true }: SidebarProps) {
   const [inputText, setInputText] = useState("");
-  const [activeTab, setActiveTab] = useState<'discovery' | 'sources' | 'intel'>('discovery');
+  const [activeTab, setActiveTab] = useState<'discovery' | 'sources' | 'intel'>(defaultOpenIngest ? 'discovery' : 'intel');
   const [suggestions, setSuggestions] = useState<SuggestedEntity[]>([]);
   const [references, setReferences] = useState<{ id: string; name: string; type: string; url?: string; textPreview?: string; fullText?: string }[]>([]);
   const [isCrawling, setIsCrawling] = useState(false);
+
+  useEffect(() => {
+    if (defaultOpenIngest) {
+      setActiveTab('discovery');
+    }
+  }, [defaultOpenIngest]);
+
+  const onSwitchCase = onSwitchCaseProp ?? (() => {});
+  const logoutSafe = onLogout ?? (() => {});
 
   const handleUploadSource = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -476,7 +488,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
                 Switch Case
             </button>
             <button 
-                onClick={onLogout}
+                onClick={logoutSafe}
                 className="flex-1 bg-zinc-900 border border-zinc-700 hover:border-red-900 text-[10px] uppercase text-zinc-400 hover:text-red-400 py-1 rounded transition-all"
             >
                 Log Out
