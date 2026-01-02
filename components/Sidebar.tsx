@@ -66,7 +66,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
     }
   }, [defaultOpenIngest]);
 
-  const onSwitchCase = onSwitchCaseProp ?? (() => {});
+  const onSwitchCase = onSwitchCaseProp ?? (() => { console.log("Switch Case clicked"); });
   const logoutSafe = onLogout ?? (() => {});
 
   const handleUploadSource = (e: React.ChangeEvent<HTMLInputElement>) => {

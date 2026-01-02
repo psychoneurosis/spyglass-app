@@ -7,8 +7,8 @@ import { useNodesState, useEdgesState } from "reactflow";
 import { useEffect, useState, useRef } from "react";
 import { X, AlertTriangle } from "lucide-react";
 
-const initialNodes = [];
-const initialEdges = [];
+const initialNodes: any[] = [];
+const initialEdges: any[] = [];
 
 export default function Home() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
