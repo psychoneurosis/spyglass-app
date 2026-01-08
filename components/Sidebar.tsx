@@ -472,7 +472,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
       <div className="p-4 border-b border-[#991b1b]/20">
         <div className="mb-3">
           <div className="bg-zinc-900 border border-zinc-800 rounded px-3 py-2">
-            <div className="text-[10px] uppercase tracking-wider text-zinc-500">Case Objective</div>
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500">Story Objective</div>
             <div className="text-sm text-white font-mono">{
               (caseInfo?.objective && caseInfo.objective.trim())
                 ? caseInfo.objective
@@ -485,7 +485,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
                 onClick={onSwitchCase}
                 className="flex-1 bg-zinc-900 border border-zinc-700 hover:border-zinc-500 text-[10px] uppercase text-zinc-400 hover:text-white py-1 rounded transition-all"
             >
-                Switch Case
+                Switch Story
             </button>
             <button 
                 onClick={logoutSafe}
@@ -533,7 +533,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
         <h1 className="text-xl font-bold tracking-wider text-white font-mono">{isMounted ? callsign : 'WAR ROOM'}</h1>
         {isMounted && caseInfo?.name && (
           <div className="mt-3 text-sm text-zinc-300">
-            <div className="font-semibold">Active Case</div>
+            <div className="font-semibold">Active Story</div>
             <div className="truncate">{caseInfo.name}</div>
             <div className="text-[11px] text-zinc-500">
               Persona: {caseInfo.persona}{caseInfo.objective ? ` • Objective: ${caseInfo.objective}` : ''}
@@ -734,7 +734,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
                 className="w-full flex items-center justify-center gap-2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded border border-zinc-800 transition-all duration-300 text-sm hover:shadow-[0_0_15px_rgba(0,255,255,0.4)] hover:scale-[1.02] hover:text-cyan-400 hover:border-cyan-900"
               >
                 <LayoutGrid className="w-4 h-4" />
-                Investigate Connection
+                Investigate Story Connection
               </button>
             </>
           )}
@@ -742,7 +742,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
 
         {/* Recommended Actions */}
         <div className="px-4 mb-6">
-          <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Recommended Actions</div>
+            <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Editorial Desk Actions</div>
           {nodes.length === 0 ? (
             <div className="text-zinc-500 text-sm">No recommendations available.</div>
           ) : (

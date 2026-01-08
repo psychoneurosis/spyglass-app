@@ -1,6 +1,7 @@
 import React, { memo, useMemo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { Search as SearchIcon, FileText, Clock } from 'lucide-react';
+import { Search as SearchIcon, FileText, Clock, User as UserIcon, MapPin, Calendar, Lightbulb } from 'lucide-react';
+import { Colors } from '@/lib/constants';
 
 type DocData = {
   label: string;
@@ -13,9 +14,31 @@ type DocData = {
   onInspect?: (payload: { type: string; url?: string; text?: string; label: string; conflicts?: any[] }) => void;
 };
 
+function hexToRgba(hex: string, alpha: number) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 const BaseNode = ({ id, data, style, typeLabel, selected }: NodeProps<DocData> & { style: string, typeLabel: string }) => {
   const showDelete = useMemo(() => !!selected, [selected]);
   const flash = !!(data as any)?.highlight;
+  const color = typeLabel === 'SOURCE' ? Colors.node.source
+    : typeLabel === 'EVIDENCE' ? Colors.node.evidence
+    : typeLabel === 'CLAIM' ? Colors.node.claim
+    : typeLabel === 'PUBLICATION' ? Colors.node.publication
+    : Colors.border.default;
+  const bgColor = hexToRgba(color, 0.2);
+  const IconEl = typeLabel === 'SOURCE' ? <UserIcon className="w-4 h-4 text-white" />
+    : typeLabel === 'EVIDENCE' ? <FileText className="w-4 h-4 text-white" />
+    : typeLabel === 'CLAIM' ? <Lightbulb className="w-4 h-4 text-white" />
+    : typeLabel === 'PUBLICATION' ? <Calendar className="w-4 h-4 text-white" />
+    : null;
+  const vStatus = (data as any)?.verificationStatus;
+  const borderStyleClass = vStatus === 'unverified' ? 'border-dashed' : 'border-solid';
+  const glowClass = vStatus === 'verified' ? 'shadow-[0_0_10px_rgba(16,185,129,0.5)]' : '';
   return (
     <>
     <style>{`
@@ -33,8 +56,8 @@ const BaseNode = ({ id, data, style, typeLabel, selected }: NodeProps<DocData> &
       }
     `}</style>
     <div 
-      className={`px-4 py-2 shadow-md rounded-md bg-zinc-900 min-w-[150px] relative group ${style} ${flash ? 'border-red-600 shadow-[0_0_14px_rgba(220,38,38,0.5)]' : ''} ${(data as any)?.conflicts?.length ? 'after:content-[""] after:absolute after:inset-0 after:bg-yellow-500/10 after:animate-[glitch_2s_infinite] border-yellow-500/50' : ''}`}
-      style={{ animation: 'fadeSlideUp 0.4s ease-out forwards' }}
+      className={`px-4 py-2 shadow-md rounded-md min-w-[150px] relative group ${style} ${borderStyleClass} ${glowClass} ${flash ? 'shadow-[0_0_14px_rgba(220,38,38,0.5)]' : ''} ${(data as any)?.conflicts?.length ? 'after:content-[""] after:absolute after:inset-0 after:bg-yellow-500/10 after:animate-[glitch_2s_infinite]' : ''}`}
+      style={{ animation: 'fadeSlideUp 0.4s ease-out forwards', backgroundColor: bgColor, borderColor: color }}
     >
       {selected && (
         <div className="absolute inset-0 rounded-md ring-2 ring-white/40 shadow-[0_0_15px_rgba(255,255,255,0.3)] animate-pulse pointer-events-none z-50" />
@@ -60,7 +83,10 @@ const BaseNode = ({ id, data, style, typeLabel, selected }: NodeProps<DocData> &
       <Handle type="target" position={Position.Top} className="w-16 !bg-zinc-500" />
       
       <div className="flex flex-col">
-        <div className="text-[10px] uppercase tracking-widest opacity-50 mb-1">{typeLabel}</div>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="text-[10px] uppercase tracking-widest opacity-60">{typeLabel}</div>
+          {IconEl}
+        </div>
         <div className="text-sm font-bold text-white mb-2">{data.label}</div>
         {typeLabel === 'DOCUMENT' && (
           <div className="mb-2">
@@ -120,27 +146,22 @@ const BaseNode = ({ id, data, style, typeLabel, selected }: NodeProps<DocData> &
   );
 };
 
-export const PersonNode = memo((props: NodeProps) => {
-  return <BaseNode {...props} style="border border-red-800 shadow-[0_0_10px_rgba(153,27,27,0.3)]" typeLabel="PERSON" />;
+export const SourceNode = memo((props: NodeProps) => {
+  return <BaseNode {...props} style="border" typeLabel="SOURCE" />;
 });
-PersonNode.displayName = 'PersonNode';
+SourceNode.displayName = 'SourceNode';
 
-export const PlaceNode = memo((props: NodeProps) => {
-  return <BaseNode {...props} style="border border-zinc-200 shadow-[0_0_5px_rgba(255,255,255,0.1)]" typeLabel="PLACE" />;
+export const EvidenceNode = memo((props: NodeProps) => {
+  return <BaseNode {...props} style="border" typeLabel="EVIDENCE" />;
 });
-PlaceNode.displayName = 'PlaceNode';
+EvidenceNode.displayName = 'EvidenceNode';
 
-export const DocumentNode = memo((props: NodeProps) => {
-  return <BaseNode {...props} style="border border-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.25)]" typeLabel="DOCUMENT" />;
+export const ClaimNode = memo((props: NodeProps) => {
+  return <BaseNode {...props} style="border" typeLabel="CLAIM" />;
 });
-DocumentNode.displayName = 'DocumentNode';
+ClaimNode.displayName = 'ClaimNode';
 
-export const ObjectNode = memo((props: NodeProps) => {
-  return <BaseNode {...props} style="border border-white" typeLabel="OBJECT" />;
+export const PublicationNode = memo((props: NodeProps) => {
+  return <BaseNode {...props} style="border" typeLabel="PUBLICATION" />;
 });
-ObjectNode.displayName = 'ObjectNode';
-
-export const EventNode = memo((props: NodeProps) => {
-  return <BaseNode {...props} style="border border-yellow-500" typeLabel="EVENT" />;
-});
-EventNode.displayName = 'EventNode';
+PublicationNode.displayName = 'PublicationNode';

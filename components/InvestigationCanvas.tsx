@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -13,16 +13,20 @@ import ReactFlow, {
   OnEdgesChange,
   NodeTypes,
 } from 'reactflow';
-import { PersonNode, PlaceNode, DocumentNode, ObjectNode, EventNode } from './CustomNodes';
+import { SourceNode, EvidenceNode, ClaimNode, PublicationNode } from './CustomNodes';
+import { suggestConnections } from '@/lib/ai-service';
+import { useParams } from 'next/navigation';
+import { getStory, getStoryGraph, type NodeRecord, type EdgeRecord } from '@/lib/supabase';
+import { useSpyglassStore } from '@/lib/store';
+import { useAIAnalysis } from '@/hooks/useAIAnalysis';
 
 import 'reactflow/dist/style.css';
 
 const nodeTypes: NodeTypes = {
-  person: PersonNode,
-  place: PlaceNode,
-  document: DocumentNode,
-  object: ObjectNode,
-  event: EventNode,
+  source: SourceNode,
+  evidence: EvidenceNode,
+  claim: ClaimNode,
+  publication: PublicationNode,
 };
 
 interface InvestigationCanvasProps {
@@ -34,10 +38,17 @@ interface InvestigationCanvasProps {
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
   onEditNode: (node: Node) => void;
   onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void;
+  caseId?: string;
 }
 
-export default function InvestigationCanvas({ nodes, edges, onNodesChange, onEdgesChange, setEdges, setNodes, onEditNode, onEdgeClick }: InvestigationCanvasProps) {
+export default function StoryCanvas({ nodes, edges, onNodesChange, onEdgesChange, setEdges, setNodes, onEditNode, onEdgeClick, caseId }: InvestigationCanvasProps) {
   const [rfInstance, setRfInstance] = React.useState<any>(null);
+  const [menuNode, setMenuNode] = useState<Node | null>(null);
+  const params = useParams();
+  const storeSetNodes = useSpyglassStore(s => s.setNodes);
+  const storeSetEdges = useSpyglassStore(s => s.setEdges);
+  const setActiveStory = useSpyglassStore(s => s.setActiveStory);
+  useAIAnalysis();
 
   const onConnect = useCallback(
     (params: Edge | Connection) => {
@@ -58,7 +69,7 @@ export default function InvestigationCanvas({ nodes, edges, onNodesChange, onEdg
     [setEdges],
   );
   
-  const onEdgeMouseEnter = useCallback((e: React.MouseEvent, edge: Edge) => {
+  const onEdgeMouseEnter = useCallback((_e: React.MouseEvent, edge: Edge) => {
     setEdges((eds) => eds.map(x => {
         if (x.id === edge.id) {
             return {
@@ -72,7 +83,7 @@ export default function InvestigationCanvas({ nodes, edges, onNodesChange, onEdg
     }));
   }, [setEdges]);
 
-  const onEdgeMouseLeave = useCallback((e: React.MouseEvent, edge: Edge) => {
+  const onEdgeMouseLeave = useCallback((_e: React.MouseEvent, edge: Edge) => {
     setEdges((eds) => eds.map(x => {
         if (x.id === edge.id) {
             return {
@@ -91,7 +102,7 @@ export default function InvestigationCanvas({ nodes, edges, onNodesChange, onEdg
     if (onEdgeClick) {
         onEdgeClick(e, edge);
     } else {
-        const next = window.prompt("Label this thread:", edge.label || '');
+        const next = window.prompt("Label this thread:", String(edge.label ?? ''));
         if (next === null) return;
         setEdges((eds) => eds.map(x => x.id === edge.id ? { ...x, label: next } : x));
     }
@@ -100,6 +111,7 @@ export default function InvestigationCanvas({ nodes, edges, onNodesChange, onEdg
   const onNodeDoubleClick = useCallback((e: React.MouseEvent, node: Node) => {
     e.stopPropagation();
     onEditNode(node);
+    setMenuNode(node);
   }, [onEditNode]);
   
   const onSelectionChange = useCallback(({ nodes: selectedNodes }: { nodes: Node[]; edges: Edge[] }) => {
@@ -168,10 +180,70 @@ export default function InvestigationCanvas({ nodes, edges, onNodesChange, onEdg
       window.removeEventListener('spyglass-fit-view', fitViewHandler);
     };
   }, [handleDeleteSelected, setNodes, setEdges, rfInstance]);
+  
+  React.useEffect(() => {
+    storeSetNodes(nodes);
+  }, [nodes, storeSetNodes]);
+  
+  React.useEffect(() => {
+    storeSetEdges(edges);
+  }, [edges, storeSetEdges]);
+  
+  React.useEffect(() => {
+    const resolvedId = caseId || (params && (params as any).id);
+    if (!resolvedId) return;
+    let cancelled = false;
+    const mapNodeType = (t: string) => {
+      if (t === 'person') return 'source';
+      if (t === 'location' || t === 'place') return 'source';
+      if (t === 'event') return 'publication';
+      if (t === 'evidence' || t === 'document') return 'evidence';
+      if (t === 'object') return 'claim';
+      return 'claim';
+    };
+    const mapEdgeStyle = (t: string) => {
+      if (t === 'confirmed') return { stroke: '#10b981', strokeWidth: 2 };
+      if (t === 'contradicts') return { stroke: '#ef4444', strokeWidth: 2 };
+      return { stroke: '#6b7280', strokeWidth: 2 };
+    };
+    (async () => {
+      try {
+        const c = await getStory(String(resolvedId));
+        setActiveStory({ id: c.id, title: c.title, centralQuestion: c.centralQuestion, status: c.status });
+        const graph = await getStoryGraph(String(resolvedId));
+        const flowNodes: Node[] = (graph.nodes as NodeRecord[]).map(n => ({
+          id: n.id,
+          type: mapNodeType(String(n.type)),
+          position: n.position || { x: 200, y: 200 },
+          data: { label: n.data?.name || '', source: n.data?.source, ...n.data },
+        }));
+        const flowEdges: Edge[] = (graph.edges as EdgeRecord[]).map(e => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          type: 'smoothstep',
+          animated: false,
+          label: e.label || '',
+          style: mapEdgeStyle(String(e.type)),
+        } as any));
+        if (cancelled) return;
+        setNodes(() => flowNodes);
+        setEdges(() => flowEdges);
+        storeSetNodes(flowNodes);
+        storeSetEdges(flowEdges);
+        if (rfInstance) {
+          rfInstance.fitView({ padding: 0.2, duration: 800 });
+        }
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [caseId, params, setNodes, setEdges, storeSetNodes, storeSetEdges, setActiveStory, rfInstance]);
 
   return (
     <div
-      className="w-full h-full bg-[#09090b]"
+      className="w-full h-full bg-zinc-950"
       onContextMenu={(e) => {
         e.preventDefault();
         handleDeleteSelected();
@@ -206,16 +278,15 @@ export default function InvestigationCanvas({ nodes, edges, onNodesChange, onEdg
         onInit={setRfInstance}
         fitView
       >
-        <Background color="#27272a" gap={16} />
-        <Controls className="bg-zinc-900 border-zinc-800 fill-white" />
+        <Background color="#e4e4e7" gap={16} />
+        <Controls className="bg-zinc-100 border-zinc-300 fill-zinc-900" />
         <MiniMap 
             nodeStrokeColor={(n) => {
                 if (n.style?.background) return n.style.background as string;
-                if (n.type === 'person') return '#991b1b';
-                if (n.type === 'place') return '#fff';
-                if (n.type === 'document') return '#3b82f6';
-                if (n.type === 'object') return '#ffffff';
-                if (n.type === 'event') return '#eab308';
+                if (n.type === 'source') return '#3b82f6';
+                if (n.type === 'evidence') return '#10b981';
+                if (n.type === 'claim') return '#f59e0b';
+                if (n.type === 'publication') return '#ec4899';
                 return '#eee';
             }}
             nodeColor={(n) => {
@@ -226,6 +297,46 @@ export default function InvestigationCanvas({ nodes, edges, onNodesChange, onEdg
             className="bg-zinc-950 border border-zinc-800"
         />
       </ReactFlow>
+      {menuNode && (
+        <div className="absolute bottom-4 right-4 bg-zinc-900 border border-zinc-700 rounded p-3 shadow-xl">
+          <div className="text-zinc-200 text-sm mb-2">Node Menu</div>
+          <div className="flex gap-2">
+            <button
+              className="px-3 py-1 bg-zinc-800 border border-zinc-700 rounded text-zinc-300 hover:text-white"
+              onClick={async () => {
+                const name = String((menuNode.data as any)?.label || '');
+                const existing = nodes.map(n => ({ id: n.id, name: String((n.data as any)?.label || '') }));
+                const suggestions = await suggestConnections({ name }, existing);
+                const newEdges: Edge[] = [];
+                suggestions.forEach(s => {
+                  const target = nodes.find(n => n.id === s.targetNode || String((n.data as any)?.label || '') === s.targetNode);
+                  if (target) {
+                    newEdges.push({
+                      id: `suggest-${Date.now()}-${Math.random()}`,
+                      source: menuNode.id,
+                      target: target.id,
+                      type: 'smoothstep',
+                      animated: false,
+                      label: 'suggested',
+                      style: { stroke: '#6b7280', strokeWidth: 2, strokeDasharray: '6,4' },
+                    } as any);
+                  }
+                });
+                if (newEdges.length > 0) setEdges(eds => [...eds, ...newEdges]);
+                setMenuNode(null);
+              }}
+            >
+              Suggest Connections
+            </button>
+            <button
+              className="px-3 py-1 bg-zinc-800 border border-zinc-700 rounded text-zinc-300 hover:text-white"
+              onClick={() => setMenuNode(null)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
