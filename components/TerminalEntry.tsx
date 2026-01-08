@@ -1,4 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSpyglassStore } from '@/lib/store';
+import { processCommand } from '@/lib/ai-service';
+import { assessStoryViabilityIndia } from '@/lib/ai-journalism';
+import { ArrowLeftRight } from 'lucide-react';
+import { createStory, getUser, updateStory, supabase } from '@/lib/supabase';
+import { useRouter } from 'next/navigation';
 
 // --- Types ---
 
@@ -16,7 +22,7 @@ export interface Investigator {
   intake_complete: boolean;
 }
 
-export interface Case {
+export interface Story {
   id: string;
   user_id: string;
   title: string;
@@ -26,7 +32,7 @@ export interface Case {
   evidence_maturity: string;
   desired_outcome: string;
   last_opened_at: number;
-  canvas_state?: { nodes: any[]; edges: any[] };
+  canvas_state?: { nodes: unknown[]; edges: unknown[] };
 }
 
 // --- Component ---
@@ -44,12 +50,37 @@ export default function TerminalEntry({
   onCaseSelected,
   onInvestigatorUpdate
 }: TerminalEntryProps) {
+  const router = useRouter();
   const [input, setInput] = useState('');
   const [output, setOutput] = useState<string[]>([]);
   const [step, setStep] = useState(0);
-  const [tempData, setTempData] = useState<any>({});
+  const [tempData, setTempData] = useState<Record<string, unknown>>({});
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const terminalMode = useSpyglassStore(s => s.terminalMode);
+  const setTerminalMode = useSpyglassStore(s => s.setTerminalMode);
+  const activeStory = useSpyglassStore(s => s.activeStory);
+  const user = useSpyglassStore(s => s.user);
+  const [history, setHistory] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [histIndex, setHistIndex] = useState<number | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const keySoundRef = useRef<HTMLAudioElement | null>(null);
+  const enterSoundRef = useRef<HTMLAudioElement | null>(null);
+  const CASE_QUESTIONS = [
+    'What story are you investigating?',
+    'What is the central public interest angle?',
+    'What initial evidence or sources do you have?',
+    'What is the primary ethical risk?',
+  ];
+  const [messages, setMessages] = useState<Array<{ role: 'ai' | 'user'; text: string }>>([]);
+  const [pendingKey, setPendingKey] = useState<'public_interest' | 'initial_nodes' | 'ethics_flag' | null>(null);
+  const [createdStoryId, setCreatedStoryId] = useState<string | null>(null);
+  const playClick = () => {
+    try {
+      new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3').play().catch(() => {});
+    } catch {}
+  };
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -61,11 +92,28 @@ export default function TerminalEntry({
     inputRef.current?.focus();
   }, [currentPhase, step]);
 
+  useEffect(() => {
+    try {
+      const keyAudio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-typewriter-hit-2298.mp3');
+      keyAudio.preload = 'auto';
+      keyAudio.volume = 0.2;
+      keySoundRef.current = keyAudio;
+    } catch {}
+    try {
+      const enterAudio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-typewriter-bell-1473.mp3');
+      enterAudio.preload = 'auto';
+      enterAudio.volume = 0.25;
+      enterSoundRef.current = enterAudio;
+    } catch {}
+  }, []);
+
   // --- Phase 1: Authentication ---
   useEffect(() => {
     if (currentPhase === 'AUTHENTICATION' && step === 0) {
-      setOutput(['Before we begin, I’ll need to set up your account so your work is saved.', 'What email should I use?']);
-      setStep(1);
+      setTimeout(() => {
+        setOutput(['Before we begin, I’ll need to set up your account so your work is saved.', 'What email should I use?']);
+        setStep(1);
+      }, 0);
     }
   }, [currentPhase, step]);
 
@@ -124,12 +172,14 @@ export default function TerminalEntry({
   useEffect(() => {
     if (currentPhase === 'INVESTIGATOR_INTAKE') {
         if (step === 0) {
-            setOutput([
-                'Before we begin, I need a quick read on who’s on this case. This helps me work with you properly.', 
-                'Answer briefly — or skip anything.',
-                'What should I call you?'
-            ]);
-            setStep(1);
+            setTimeout(() => {
+              setOutput([
+                  'Before we begin, I need a quick read on who’s on this case. This helps me work with you properly.', 
+                  'Answer briefly — or skip anything.',
+                  'What should I call you?'
+              ]);
+              setStep(1);
+            }, 0);
         }
     }
   }, [currentPhase, step]);
@@ -169,7 +219,7 @@ export default function TerminalEntry({
         setStep(6);
     } else if (step === 6) {
         newData.uncertainty_preference = value;
-        const name = newData.name || 'Investigator';
+        const name = newData.name || 'Journalist';
         setOutput([...currentOutput, `Understood, ${name}. I’ll work with that in mind.`]);
         
         // Save
@@ -197,28 +247,34 @@ export default function TerminalEntry({
         const userId = localStorage.getItem('spyglass_current_user_id');
         const users = JSON.parse(localStorage.getItem('spyglass_users') || '{}');
         const user = users[userId || ''];
-        const name = user?.name || 'Investigator';
+        const name = user?.name || 'Reporter';
         
         // Load cases
         const allCasesRaw = localStorage.getItem('spyglass_cases');
-        const allCases: Record<string, Case> = allCasesRaw ? JSON.parse(allCasesRaw) : {};
+        const allCases: Record<string, Story> = allCasesRaw ? JSON.parse(allCasesRaw) : {};
         const userCases = Object.values(allCases)
-            .filter((c: Case) => c.user_id === userId)
+            .filter((c: Story) => c.user_id === userId)
             .sort((a, b) => b.last_opened_at - a.last_opened_at);
         
-        setTempData({ userCases });
+        setTimeout(() => setTempData({ userCases }), 0);
 
         if (userCases.length === 0) {
-            setOutput([`Welcome back, ${name}.`, 'Ready to start your first investigation? (Y/N)']);
-            setStep(1); // 1 = Confirm New
+            setTimeout(() => {
+              setOutput([`Welcome back, ${name}.`, 'Ready to start your first story? (Y/N)']);
+              setStep(1);
+            }, 0);
         } else if (userCases.length === 1) {
             const c = userCases[0];
-            setOutput([`Welcome back, ${name}.`, `Continue "${c.title}" or start a new investigation? (Type 'Continue' or 'New')`]);
-            setStep(2); // 2 = Single Case Decision
+            setTimeout(() => {
+              setOutput([`Welcome back, ${name}.`, `Continue "${c.title}" or start a new story? (Type 'Continue' or 'New')`]);
+              setStep(2);
+            }, 0);
         } else {
             const list = userCases.map((c, i) => `${i + 1}. ${c.title}`).join('\n');
-            setOutput([`Welcome back, ${name}.`, 'Which investigation would you like to open — or should we start a new one?', list, `Type the number or "New".`]);
-            setStep(3); // 3 = Multi Case Decision
+            setTimeout(() => {
+              setOutput([`Welcome back, ${name}.`, 'Which story would you like to open — or should we start a new one?', list, `Type the number or "New".`]);
+              setStep(3);
+            }, 0);
         }
     }
   }, [currentPhase, step]);
@@ -282,111 +338,169 @@ export default function TerminalEntry({
     }
   };
 
-  // --- Phase 3: Case Intake ---
+  // --- Phase 3: Case Intake (Simplified - Only Headline) ---
   useEffect(() => {
     if (currentPhase === 'CASE_INTAKE' && step === 0) {
-        setOutput(['Before we open the board, I need to understand what this investigation is about.', 'What should we call this investigation? (Default: "Untitled Investigation")']);
-        setStep(1);
+        setTimeout(() => {
+          setMessages([{ role: 'ai', text: 'What is the headline for this story?' }]);
+        }, 0);
     }
   }, [currentPhase, step]);
 
-  const handleCaseIntake = (value: string) => {
-    const currentOutput = [...output, `> ${value}`];
-    const newData = { ...tempData };
-
-    if (step === 1) {
-        newData.title = value.trim() || 'Untitled Investigation';
-        setOutput([...currentOutput, 'What are you trying to figure out?']);
-        setStep(2);
-    } else if (step === 2) {
-        newData.core_question = value;
-        setOutput([...currentOutput, 'What kind of information are you working with right now?']);
-        setStep(3);
-    } else if (step === 3) {
-        newData.context_scope = value;
-        setOutput([...currentOutput, 'Do you already have material to start with, or are we beginning from scratch? (Ingest/Blank)']);
-        setStep(4);
-    } else if (step === 4) {
-        const v = value.toLowerCase();
-        if (v.includes('ingest') || v.includes('start') || v.includes('material')) {
-            newData.starting_material = 'INGEST';
-        } else {
-            newData.starting_material = 'BLANK';
-        }
-        setOutput([...currentOutput, 'How solid is what you already know?']);
-        setStep(5);
-    } else if (step === 5) {
-        newData.evidence_maturity = value;
-        setOutput([...currentOutput, 'At the end of this, what would count as a good outcome for you?']);
-        setStep(6);
-    } else if (step === 6) {
-        newData.desired_outcome = value;
-        setOutput([...currentOutput, 'Understood. Let’s lay everything out.']);
-        
-        // Create Case
-        const userId = localStorage.getItem('spyglass_current_user_id');
-        const caseId = `case-${Date.now()}`;
-        const newCase: Case = {
-            id: caseId,
-            user_id: userId!,
-            title: newData.title,
-            core_question: newData.core_question,
-            context_scope: newData.context_scope,
-            starting_material: newData.starting_material,
-            evidence_maturity: newData.evidence_maturity,
-            desired_outcome: newData.desired_outcome,
-            last_opened_at: Date.now(),
-            canvas_state: { nodes: [], edges: [] }
-        };
-        
-        const allCases = JSON.parse(localStorage.getItem('spyglass_cases') || '{}');
-        allCases[caseId] = newCase;
-        localStorage.setItem('spyglass_cases', JSON.stringify(allCases));
-        
-        setTimeout(() => {
-            onCaseSelected(caseId);
-            setStep(0);
-            setOutput([]);
-            setTempData({});
-        }, 1500);
+  const handleCaseIntakeMessage = async (value: string) => {
+    if (!value.trim()) {
+      setMessages(prev => [...prev, { role: 'user', text: value }, { role: 'ai', text: 'Please enter a headline.' }]);
+      return;
     }
-    setTempData(newData);
+    
+    setMessages(prev => [...prev, { role: 'user', text: value }]);
+    
+    // Play bell sound
+    try {
+      new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3').play().catch(() => {});
+    } catch {}
+    
+    try {
+      const supaUser = user?.id ? { user: { id: user.id } } : (await getUser()).data;
+      const userId = supaUser?.user?.id || '';
+      if (!userId) {
+        window.location.assign('/auth/login');
+        return;
+      }
+      setIsProcessing(true);
+      try {
+        const { data, error } = await supabase.from('stories').insert({
+          user_id: userId,
+          title: value.trim(),
+          status: 'active',
+        }).select().single();
+        
+        if (error) throw error;
+        
+        setIsProcessing(false);
+        window.location.assign('/dashboard');
+      } catch (error: any) {
+        console.error(error?.message || error);
+        setIsProcessing(false);
+        setMessages(prev => [...prev, { role: 'ai', text: 'System Error: Could not create story.' }]);
+      }
+    } catch (error: any) {
+      console.error(error?.message || error);
+      setMessages(prev => [...prev, { role: 'ai', text: 'System Error: Session invalid.' }]);
+    }
   };
 
   const handleInput = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    playClick();
     if (e.key === 'Enter') {
-        const val = input; // Allow empty strings for skipping if needed, logic handles it
+        const val = input;
         setInput('');
         
-        if (currentPhase === 'AUTHENTICATION') handleAuth(val);
-        else if (currentPhase === 'INVESTIGATOR_INTAKE') handleInvestigatorIntake(val);
-        else if (currentPhase === 'CASE_ROUTER') handleCaseRouter(val);
-        else if (currentPhase === 'CASE_INTAKE') handleCaseIntake(val);
+        if (terminalMode === 'command') {
+          const ctx = activeStory || {};
+          processCommand(val, ctx).then(res => {
+            setOutput(prev => [...prev, `> ${val}`, JSON.stringify(res)]);
+            setHistory(prev => [val, ...prev].slice(0, 50));
+            setHistIndex(null);
+            setSuggestions([]);
+          }).catch(() => {
+            setOutput(prev => [...prev, `> ${val}`, 'Command failed']);
+          });
+        } else {
+          if (currentPhase === 'AUTHENTICATION') handleAuth(val);
+          else if (currentPhase === 'INVESTIGATOR_INTAKE') handleInvestigatorIntake(val);
+          else if (currentPhase === 'CASE_ROUTER') handleCaseRouter(val);
+          else if (currentPhase === 'CASE_INTAKE') handleCaseIntakeMessage(val);
+        }
+    }
+    try {
+      if (keySoundRef.current && e.key.length === 1) {
+        keySoundRef.current.currentTime = 0;
+        void keySoundRef.current.play();
+      }
+    } catch {}
+    if (e.key === 'ArrowUp') {
+      const idx = histIndex === null ? 0 : Math.min(history.length - 1, histIndex + 1);
+      const val = history[idx] || '';
+      setHistIndex(idx);
+      setInput(val);
+    }
+    if (e.key === 'ArrowDown') {
+      const idx = histIndex === null ? null : histIndex - 1;
+      if (idx === null || idx < 0) {
+        setHistIndex(null);
+        setInput('');
+      } else {
+        const val = history[idx] || '';
+        setHistIndex(idx);
+        setInput(val);
+      }
     }
   };
 
+  useEffect(() => {
+    if (terminalMode === 'command') {
+      const base = ['create node', 'filter', 'search', 'export report', 'analyze story'];
+      const v = input.trim().toLowerCase();
+      setTimeout(() => {
+        setSuggestions(v ? base.filter(x => x.startsWith(v)).slice(0, 5) : base.slice(0, 5));
+      }, 0);
+    } else {
+      setTimeout(() => setSuggestions([]), 0);
+    }
+  }, [input, terminalMode]);
+
   return (
-    <div className="fixed inset-0 z-[100] bg-zinc-950 text-white font-mono p-8 overflow-y-auto" onClick={() => inputRef.current?.focus()}>
+    <div className="fixed inset-0 z-[100] bg-amber-50 text-zinc-900 font-serif p-8 overflow-y-auto" onClick={() => inputRef.current?.focus()}>
       <div className="max-w-3xl mx-auto min-h-full flex flex-col justify-end">
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-zinc-700 text-xs font-serif">THE REPORTER'S DESK</div>
+          <button
+            onClick={() => setTerminalMode(terminalMode === 'intake' ? 'command' : 'intake')}
+            className="px-2 py-1 bg-zinc-100 border border-zinc-300 rounded text-zinc-900 hover:bg-white flex items-center gap-2"
+          >
+            <ArrowLeftRight className="w-4 h-4" />
+            {terminalMode === 'intake' ? 'Intake' : 'Command'}
+          </button>
+        </div>
         <div className="space-y-4 mb-4">
-            {output.map((line, i) => (
-                <div key={i} className={line.startsWith('>') ? 'text-zinc-400' : 'text-zinc-100'}>
-                    {line}
-                </div>
-            ))}
+          {terminalMode === 'intake' && currentPhase === 'CASE_INTAKE' ? (
+            messages.map((m, i) => (
+              <div key={i} className={m.role === 'user' ? 'text-zinc-500' : 'text-zinc-900'}>
+                {m.role === 'user' ? `> ${m.text}` : m.text}
+              </div>
+            ))
+          ) : (
+            output.map((line, i) => (
+              <div key={i} className={line.startsWith('>') ? 'text-zinc-500' : 'text-zinc-900'}>
+                {line}
+              </div>
+            ))
+          )}
         </div>
-        <div className="flex items-center gap-2 text-zinc-400 border-t border-zinc-800 pt-4">
-            <span>&gt;</span>
-            <input
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleInput}
-                className="flex-1 bg-transparent outline-none text-white caret-cyan-500"
-                autoFocus
-                spellCheck={false}
-            />
+        <div className="flex items-center gap-2 text-zinc-700 border-t border-zinc-300 pt-4">
+            {isProcessing ? (
+              <div className="flex-1 text-zinc-700 font-serif animate-pulse">...SENDING TO EDITORIAL DESK...</div>
+            ) : (
+              <>
+                <span>&gt;</span>
+                <input
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleInput}
+                    className="flex-1 bg-transparent outline-none text-zinc-900 caret-zinc-900"
+                    autoFocus
+                    spellCheck={false}
+                />
+              </>
+            )}
         </div>
+        {suggestions.length > 0 && (
+          <div className="mt-2 text-[12px] text-zinc-600">
+            {suggestions.join('  •  ')}
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
     </div>

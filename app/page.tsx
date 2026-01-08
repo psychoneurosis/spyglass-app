@@ -1,11 +1,13 @@
 "use client";
 
 import Sidebar, { SuggestedEntity } from "@/components/Sidebar";
-import InvestigationCanvas from "@/components/InvestigationCanvas";
-import TerminalEntry, { Phase, Investigator, Case } from "@/components/TerminalEntry";
+import StoryCanvas from "@/components/InvestigationCanvas";
+import TerminalEntry, { Phase, Investigator, Story } from "@/components/TerminalEntry";
 import { useNodesState, useEdgesState } from "reactflow";
 import { useEffect, useState, useRef } from "react";
-import { X, AlertTriangle } from "lucide-react";
+import { X, AlertTriangle, Shield } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { signInWithGoogle, getUser } from "@/lib/supabase";
 
 const initialNodes: any[] = [];
 const initialEdges: any[] = [];
@@ -18,15 +20,30 @@ export default function Home() {
   const historyRef = useRef<Array<{ nodes: any[]; edges: any[] }>>([]);
   const isRestoringRef = useRef(false);
   const initializedRef = useRef(false);
+  const router = useRouter();
 
   // --- State Machine ---
   const [phase, setPhase] = useState<Phase>('AUTHENTICATION');
   const [investigator, setInvestigator] = useState<Investigator | null>(null);
-  const [currentCase, setCurrentCase] = useState<Case | null>(null);
+  const [currentCase, setCurrentCase] = useState<Story | null>(null);
+  const [appStatus, setAppStatus] = useState<'landing' | 'onboarding' | 'active'>('landing');
+  const [authUser, setAuthUser] = useState<{ id: string; email?: string; name?: string } | null>(null);
+  const [showLogin, setShowLogin] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
 
   // --- Initialization Effect ---
   useEffect(() => {
     setIsMounted(true);
+    
+    (async () => {
+      setAuthLoading(true);
+      const session = await getUser();
+      if (session?.data?.user) {
+        window.location.assign('/dashboard');
+        return;
+      }
+      setAuthLoading(false);
+    })();
     
     // Check if user is logged in
     try {
@@ -68,6 +85,12 @@ export default function Home() {
     }
   }, [currentCase, setNodes, setEdges]);
 
+  useEffect(() => {
+    if (appStatus === 'onboarding' && phase === 'CASE_ROUTER') {
+      setAppStatus('active');
+    }
+  }, [phase, appStatus]);
+
   // --- Persistence Effect (Canvas Phase) ---
   useEffect(() => {
     if (phase === 'CANVAS' && saveReadyRef.current && initializedRef.current && currentCase) {
@@ -93,9 +116,17 @@ export default function Home() {
   const [editNode, setEditNode] = useState<{ id: string; label: string; timestamp?: string; note?: string } | null>(null);
 
   const handleAddEntity = (entity: SuggestedEntity) => {
+    const mapType = (t: string) => {
+      if (t === 'person') return 'source';
+      if (t === 'place' || t === 'location') return 'source';
+      if (t === 'document' || t === 'evidence') return 'evidence';
+      if (t === 'object') return 'claim';
+      if (t === 'event') return 'publication';
+      return 'claim';
+    };
     const newNode = {
       id: `node-${Date.now()}`,
-      type: entity.type,
+      type: mapType(entity.type as any),
       position: { x: Math.random() * 400 + 100, y: Math.random() * 400 + 100 },
       data: { 
         label: entity.label, 
@@ -164,9 +195,17 @@ export default function Home() {
       } else {
         const id = `node-${Date.now()}-${idx}`;
         labelToId[key] = id;
+        const mapType2 = (t: string) => {
+          if (t === 'person') return 'source';
+          if (t === 'place' || t === 'location') return 'source';
+          if (t === 'document' || t === 'evidence') return 'evidence';
+          if (t === 'object') return 'claim';
+          if (t === 'event') return 'publication';
+          return 'claim';
+        };
         newNodes.push({
           id,
-          type: entity.type,
+          type: mapType2(entity.type as any),
           position: { x: Math.random() * 400 + 100, y: Math.random() * 400 + 100 },
           data: {
             label: entity.label,
@@ -259,11 +298,10 @@ export default function Home() {
   const handleOrganize = () => {
     setNodes((currentNodes) => {
       const groups = {
-        person: currentNodes.filter(n => n.type === 'person'),
-        event: currentNodes.filter(n => n.type === 'event'),
-        document: currentNodes.filter(n => n.type === 'document'),
-        place: currentNodes.filter(n => n.type === 'place'),
-        object: currentNodes.filter(n => n.type === 'object'),
+        source: currentNodes.filter(n => n.type === 'source'),
+        evidence: currentNodes.filter(n => n.type === 'evidence'),
+        claim: currentNodes.filter(n => n.type === 'claim'),
+        publication: currentNodes.filter(n => n.type === 'publication'),
       };
 
       const Y_START = 100;
@@ -273,8 +311,8 @@ export default function Home() {
       const organizedNodes: any[] = [];
       const knownIds = new Set<string>();
       
-      // Order: Person -> Event -> Document -> Place -> Object
-      const order = ['person', 'event', 'document', 'place', 'object'];
+      // Order: Source -> Evidence -> Claim -> Publication
+      const order = ['source', 'evidence', 'claim', 'publication'];
       
       order.forEach(type => {
         const group = groups[type as keyof typeof groups];
@@ -355,10 +393,10 @@ export default function Home() {
 
   const handleExport = () => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    let mdContent = `# Spyglass Investigation Report\nGenerated: ${new Date().toLocaleString()}\n\n`;
+    let mdContent = `# Spyglass Investigative Report\nGenerated: ${new Date().toLocaleString()}\n\n`;
     
     if (currentCase) {
-      mdContent += `## Active Case\n- Name: **${currentCase.title}**\n- Core Question: **${currentCase.core_question}**\n`;
+      mdContent += `## Active Story\n- Title: **${currentCase.title}**\n- Central Question: **${currentCase.core_question}**\n`;
       if (currentCase.desired_outcome) mdContent += `- Desired Outcome: _${currentCase.desired_outcome}_\n`;
       mdContent += `\n`;
     }
@@ -366,29 +404,37 @@ export default function Home() {
     mdContent += `## Entities (${nodes.length})\n\n`;
     
     // Group by type
-    const persons = nodes.filter(n => n.type === 'person');
-    if (persons.length > 0) {
-      mdContent += `### Persons\n`;
-      persons.forEach(p => {
-        mdContent += `- **${p.data.label}**\n  - Source: _"${p.data.source}"_\n`;
+    const sources = nodes.filter(n => n.type === 'source');
+    if (sources.length > 0) {
+      mdContent += `### Sources\n`;
+      sources.forEach(p => {
+        mdContent += `- **${(p.data as any).label}**\n  - Source: _"${(p.data as any).source}"_\n`;
       });
       mdContent += `\n`;
     }
     
-    const places = nodes.filter(n => n.type === 'place');
-    if (places.length > 0) {
-      mdContent += `### Places\n`;
-      places.forEach(p => {
-        mdContent += `- **${p.data.label}**\n  - Source: _"${p.data.source}"_\n`;
+    const evidence = nodes.filter(n => n.type === 'evidence');
+    if (evidence.length > 0) {
+      mdContent += `### Evidence\n`;
+      evidence.forEach(d => {
+        mdContent += `- **${(d.data as any).label}**\n  - Source: _"${(d.data as any).source}"_\n`;
       });
       mdContent += `\n`;
     }
     
-    const documents = nodes.filter(n => n.type === 'document');
-    if (documents.length > 0) {
-      mdContent += `### Documents\n`;
-      documents.forEach(d => {
-        mdContent += `- **${d.data.label}**\n  - Source: _"${d.data.source}"_\n`;
+    const claims = nodes.filter(n => n.type === 'claim');
+    if (claims.length > 0) {
+      mdContent += `### Claims\n`;
+      claims.forEach(d => {
+        mdContent += `- **${(d.data as any).label}**\n  - Source: _"${(d.data as any).source}"_\n`;
+      });
+      mdContent += `\n`;
+    }
+    const publications = nodes.filter(n => n.type === 'publication');
+    if (publications.length > 0) {
+      mdContent += `### Publications\n`;
+      publications.forEach(d => {
+        mdContent += `- **${(d.data as any).label}**\n  - Source: _"${(d.data as any).source}"_\n`;
       });
       mdContent += `\n`;
     }
@@ -444,6 +490,7 @@ export default function Home() {
           
           setCurrentCase(selected);
           // Phase change happens in useEffect when currentCase is set
+          setAppStatus('active');
       }
   };
 
@@ -462,11 +509,103 @@ export default function Home() {
         setNodes([]);
         setEdges([]);
         setPhase('AUTHENTICATION');
+        setAppStatus('landing');
+        setAuthUser(null);
       }
   };
 
-  // Render Terminal if not in Canvas phase
-  if (phase !== 'CANVAS') {
+  const handleStartNewCase = () => {
+    setAppStatus('onboarding');
+    setPhase('AUTHENTICATION');
+  };
+
+  const handleOpenLogin = () => {
+    setShowLogin(true);
+  };
+
+  const handleCloseLogin = () => {
+    setShowLogin(false);
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      await signInWithGoogle();
+    } catch {}
+  };
+
+  
+
+  // Check loading state at the top
+  if (authLoading) {
+    return (
+      <main className="flex h-screen w-screen overflow-hidden bg-white">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-zinc-900 font-serif text-lg">AUTHENTICATING...</div>
+        </div>
+      </main>
+    );
+  }
+
+  if (appStatus === 'landing') {
+    return (
+      <main className="flex h-screen w-screen overflow-hidden bg-zinc-50">
+        <div className="flex-1 flex items-center justify-center relative">
+          <>
+              <div className="max-w-md w-full px-6 py-8 bg-zinc-100 border border-zinc-300 rounded">
+                <div className="text-center mb-6">
+                  <div className="text-zinc-900 text-sm font-serif">SPYGLASS</div>
+                  <div className="text-zinc-700 text-xs tracking-wider font-serif">EDITORIAL DESK</div>
+                  <div className="text-zinc-700 text-xs mt-1 font-serif">THE REPORTER'S DESK</div>
+                </div>
+                <div className="space-y-3">
+                  <button
+                    className="w-full bg-zinc-50 border border-zinc-300 text-zinc-900 hover:bg-white px-4 py-2 rounded flex items-center justify-center gap-2"
+                    onClick={handleOpenLogin}
+                  >
+                    <Shield className="w-4 h-4 text-zinc-900" />
+                    SPYGLASS SECURE AUTH
+                  </button>
+                </div>
+              </div>
+              {showLogin && (
+                <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/20">
+                  <div className="w-full max-w-md bg-zinc-100 border border-zinc-300 rounded p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="text-zinc-900 font-serif text-sm">SPYGLASS SECURE AUTH</div>
+                      <button className="text-zinc-700 hover:text-zinc-900" onClick={handleCloseLogin}>
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <div className="space-y-3">
+                      <button
+                        className="w-full bg-zinc-50 border border-zinc-300 text-zinc-900 hover:bg-white px-4 py-2 rounded flex items-center justify-center gap-2"
+                        onClick={handleGoogleLogin}
+                      >
+                        <Shield className="w-4 h-4 text-zinc-900" />
+                        SPYGLASS SECURE AUTH
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+          </>
+        </div>
+      </main>
+    );
+  }
+
+  if (appStatus === 'onboarding') {
+    return (
+      <TerminalEntry 
+          currentPhase={phase}
+          onPhaseChange={setPhase}
+          onCaseSelected={handleCaseSelected}
+          onInvestigatorUpdate={setInvestigator}
+      />
+    );
+  }
+
+  if (appStatus === 'active' && phase !== 'CANVAS') {
       return (
           <TerminalEntry 
               currentPhase={phase}
@@ -496,7 +635,7 @@ export default function Home() {
         onUndo={handleUndo}
         nodes={nodes}
         edges={edges}
-        investigatorName={investigator?.name || 'Investigator'}
+        investigatorName={investigator?.name || 'Journalist'}
         sources={sources}
         onUpdateSources={setSources}
         onSwitchCase={handleSwitchCase}
@@ -504,7 +643,7 @@ export default function Home() {
         defaultOpenIngest={currentCase?.starting_material === 'INGEST'}
       />
       <div className="flex-1 h-full">
-        <InvestigationCanvas 
+        <StoryCanvas 
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
