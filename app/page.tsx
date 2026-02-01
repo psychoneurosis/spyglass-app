@@ -6,7 +6,6 @@ import TerminalEntry, { Phase, Investigator, Story } from "@/components/Terminal
 import { useNodesState, useEdgesState } from "reactflow";
 import { useEffect, useState, useRef } from "react";
 import { X, AlertTriangle, Shield } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { signInWithGoogle, getUser } from "@/lib/supabase";
 
 const initialNodes: any[] = [];
@@ -16,66 +15,97 @@ export default function Home() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const saveReadyRef = useRef(false);
-  const [isMounted, setIsMounted] = useState(false);
   const historyRef = useRef<Array<{ nodes: any[]; edges: any[] }>>([]);
   const isRestoringRef = useRef(false);
   const initializedRef = useRef(false);
-  const router = useRouter();
 
   // --- State Machine ---
   const [phase, setPhase] = useState<Phase>('AUTHENTICATION');
   const [investigator, setInvestigator] = useState<Investigator | null>(null);
   const [currentCase, setCurrentCase] = useState<Story | null>(null);
   const [appStatus, setAppStatus] = useState<'landing' | 'onboarding' | 'active'>('landing');
-  const [authUser, setAuthUser] = useState<{ id: string; email?: string; name?: string } | null>(null);
   const [showLogin, setShowLogin] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [showRescueButton, setShowRescueButton] = useState(false);
+  const authLoadingRef = useRef(true);
 
   // --- Initialization Effect ---
   useEffect(() => {
-    setIsMounted(true);
-    
     (async () => {
       setAuthLoading(true);
-      const session = await getUser();
-      if (session?.data?.user) {
-        window.location.assign('/dashboard');
-        return;
+      setAuthError(null);
+      const timeoutId = window.setTimeout(() => {
+        if (authLoadingRef.current) {
+          window.location.reload();
+        }
+      }, 10_000);
+      try {
+        const session = await getUser();
+        window.clearTimeout(timeoutId);
+        if (session?.data?.user) {
+          window.location.assign('/dashboard');
+          return;
+        }
+        setAuthLoading(false);
+      } catch (e: unknown) {
+        window.clearTimeout(timeoutId);
+        const err = e as { name?: string; message?: string };
+        const name = String(err?.name || '');
+        const message = String(err?.message || '');
+        if (name === 'AuthRetryableFetchError' || message.includes('AuthRetryableFetchError')) {
+          setAuthError('Connection to Newsroom Backend failed. Check your internet or ad-blocker.');
+        } else {
+          console.error('AUTH_INIT_ERROR:', e);
+        }
+        setAuthLoading(false);
       }
-      setAuthLoading(false);
     })();
     
-    // Check if user is logged in
     try {
         const userId = localStorage.getItem('spyglass_current_user_id');
+        let nextPhase: Phase = 'AUTHENTICATION';
+        let nextInvestigator: Investigator | null = null;
         if (userId) {
             const users = JSON.parse(localStorage.getItem('spyglass_users') || '{}');
-            const user = users[userId];
+            const user = users[userId] as Investigator | undefined;
             if (user) {
-                setInvestigator(user);
-                if (!user.intake_complete) {
-                    setPhase('INVESTIGATOR_INTAKE');
-                } else {
-                    setPhase('CASE_ROUTER');
-                }
-            } else {
-                setPhase('AUTHENTICATION');
+                nextInvestigator = user;
+                nextPhase = user.intake_complete ? 'CASE_ROUTER' : 'INVESTIGATOR_INTAKE';
             }
-        } else {
-            setPhase('AUTHENTICATION');
         }
+        window.setTimeout(() => {
+          setInvestigator(nextInvestigator);
+          setPhase(nextPhase);
+        }, 0);
     } catch (e) {
         console.error("Initialization failed", e);
-        setPhase('AUTHENTICATION');
+        window.setTimeout(() => {
+          setInvestigator(null);
+          setPhase('AUTHENTICATION');
+        }, 0);
     }
   }, []);
+  
+  useEffect(() => {
+    authLoadingRef.current = authLoading;
+  }, [authLoading]);
+  
+  useEffect(() => {
+    window.setTimeout(() => setShowRescueButton(false), 0);
+    if (!authLoading) return;
+    const id = window.setTimeout(() => setShowRescueButton(true), 5000);
+    return () => window.clearTimeout(id);
+  }, [authLoading]);
 
   // --- Case Loading Effect ---
   useEffect(() => {
     if (currentCase && currentCase.canvas_state) {
-        setNodes(currentCase.canvas_state.nodes || []);
-        setEdges(currentCase.canvas_state.edges || []);
-        setPhase('CANVAS');
+        window.setTimeout(() => {
+          setNodes((currentCase.canvas_state?.nodes as any) || []);
+          setEdges((currentCase.canvas_state?.edges as any) || []);
+          setPhase('CANVAS');
+        }, 0);
         
         // Mark as ready to save after load
         setTimeout(() => {
@@ -87,7 +117,7 @@ export default function Home() {
 
   useEffect(() => {
     if (appStatus === 'onboarding' && phase === 'CASE_ROUTER') {
-      setAppStatus('active');
+      window.setTimeout(() => setAppStatus('active'), 0);
     }
   }, [phase, appStatus]);
 
@@ -351,7 +381,7 @@ export default function Home() {
       const tb = String((b.data as any)?.timestamp || '');
       return ta.localeCompare(tb);
     });
-    let lines: string[] = [];
+    const lines: string[] = [];
     sorted.forEach(n => {
       const t = String((n.data as any)?.timestamp || '');
       const lbl = String((n.data as any)?.label || '');
@@ -510,13 +540,7 @@ export default function Home() {
         setEdges([]);
         setPhase('AUTHENTICATION');
         setAppStatus('landing');
-        setAuthUser(null);
       }
-  };
-
-  const handleStartNewCase = () => {
-    setAppStatus('onboarding');
-    setPhase('AUTHENTICATION');
   };
 
   const handleOpenLogin = () => {
@@ -530,7 +554,14 @@ export default function Home() {
   const handleGoogleLogin = async () => {
     try {
       await signInWithGoogle();
-    } catch {}
+    } catch (e: unknown) {
+      const err = e as { name?: string; message?: string };
+      const name = String(err?.name || '');
+      const message = String(err?.message || '');
+      if (name === 'AuthRetryableFetchError' || message.includes('AuthRetryableFetchError')) {
+        setAuthError('Connection to Newsroom Backend failed. Check your internet or ad-blocker.');
+      }
+    }
   };
 
   
@@ -538,11 +569,26 @@ export default function Home() {
   // Check loading state at the top
   if (authLoading) {
     return (
-      <main className="flex h-screen w-screen overflow-hidden bg-white">
-        <div className="flex-1 flex items-center justify-center">
+      <div className="fixed inset-0 bg-white flex items-center justify-center z-50">
+        <div className="text-center px-6">
           <div className="text-zinc-900 font-serif text-lg">AUTHENTICATING...</div>
+          {authError ? (
+            <div className="mt-3 text-sm text-zinc-700 font-serif">
+              {authError}
+            </div>
+          ) : null}
+          {showRescueButton ? (
+            <button
+              className="mt-5 px-4 py-2 rounded bg-zinc-900 text-white font-serif text-xs tracking-wider hover:opacity-90"
+              onClick={() => {
+                window.location.href = '/';
+              }}
+            >
+              STUCK? CLICK TO REFRESH THE DESK
+            </button>
+          ) : null}
         </div>
-      </main>
+      </div>
     );
   }
 
@@ -553,10 +599,14 @@ export default function Home() {
           <>
               <div className="max-w-md w-full px-6 py-8 bg-zinc-100 border border-zinc-300 rounded">
                 <div className="text-center mb-6">
-                  <div className="text-zinc-900 text-sm font-serif">SPYGLASS</div>
-                  <div className="text-zinc-700 text-xs tracking-wider font-serif">EDITORIAL DESK</div>
-                  <div className="text-zinc-700 text-xs mt-1 font-serif">THE REPORTER'S DESK</div>
+                  <div className="text-zinc-900 text-sm font-serif">SPYGLASS: THE REPORTER&apos;S DESK</div>
+                  <div className="text-zinc-700 text-xs mt-1 font-serif">Secure workspace for the Indian Press Corps.</div>
                 </div>
+                {authError ? (
+                  <div className="mb-4 text-sm text-zinc-700 font-serif text-center">
+                    {authError}
+                  </div>
+                ) : null}
                 <div className="space-y-3">
                   <button
                     className="w-full bg-zinc-50 border border-zinc-300 text-zinc-900 hover:bg-white px-4 py-2 rounded flex items-center justify-center gap-2"
@@ -680,8 +730,8 @@ export default function Home() {
                                     <span className="text-yellow-500 font-mono">{c.source}</span>
                                     <span className="text-zinc-500 uppercase text-[10px]">{c.type}</span>
                                 </div>
-                                <div className="text-white font-medium mb-1">"{c.value}"</div>
-                                <div className="text-zinc-400 italic">"{c.sentence}"</div>
+                                    <div className="text-white font-medium mb-1">&quot;{c.value}&quot;</div>
+                                    <div className="text-zinc-400 italic">&quot;{c.sentence}&quot;</div>
                             </div>
                         ))}
                     </div>
@@ -692,7 +742,7 @@ export default function Home() {
                 <div className="mb-4">
                     <div className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Source Context</div>
                     <div className="bg-zinc-900 p-3 rounded text-zinc-300 text-sm border-l-2 border-cyan-500 italic">
-                        "{fileIntel.originSentence || 'No sentence context available.'}"
+                        &quot;{fileIntel.originSentence || 'No sentence context available.'}&quot;
                     </div>
                     <div className="text-right mt-1 text-xs text-zinc-600">{fileIntel.sourceFile || 'Unknown Source'}</div>
                 </div>

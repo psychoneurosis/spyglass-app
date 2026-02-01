@@ -10,24 +10,49 @@ export default function DashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [stories, setStories] = useState<Array<{ id: string; title: string }>>([]);
+  const [error, setError] = useState<string | null>(null);
   const [showIntake, setShowIntake] = useState(false);
   const [phase, setPhase] = useState<Phase>("CASE_INTAKE");
 
   useEffect(() => {
     (async () => {
-      const session = await getUser();
-      const uid = session?.data?.user?.id;
-      if (!uid) {
-        router.push("/auth/login");
-        return;
-      }
       try {
-        const { data, error } = await supabase
+        setLoading(true);
+        setError(null);
+        
+        // Session protection - verify user exists before fetching
+        const session = await getUser();
+        const uid = session?.data?.user?.id;
+        
+        if (!uid) {
+          console.error("DASHBOARD_FETCH_ERROR: No user ID found in session");
+          router.push("/auth/login");
+          return;
+        }
+        
+        // Fetch stories with only columns we're sure exist
+        const { data, error: fetchError } = await supabase
           .from("stories")
-          .select("id,title,status,user_id,story_stage,fact_check_status,metadata")
+          .select("id,title,status,story_stage,fact_check_status")
           .eq("user_id", uid);
-        if (error) throw error;
-        setStories((data || []).map(s => ({ id: s.id as string, title: (s as any).title || "Untitled", fact_check_status: (s as any).fact_check_status || null } as any)));
+        
+        if (fetchError) {
+          const errorMsg = fetchError.message || String(fetchError);
+          console.error("DASHBOARD_FETCH_ERROR:", fetchError);
+          setError(errorMsg);
+          setStories([]);
+        } else {
+          setStories((data || []).map(s => ({ 
+            id: s.id as string, 
+            title: (s as any).title || "Untitled", 
+            fact_check_status: (s as any).fact_check_status || null 
+          } as any)));
+        }
+      } catch (err: any) {
+        const errorMsg = err?.message || String(err);
+        console.error("DASHBOARD_FETCH_ERROR:", err);
+        setError(errorMsg);
+        setStories([]);
       } finally {
         setLoading(false);
       }
@@ -56,7 +81,7 @@ export default function DashboardPage() {
     <main className="min-h-screen w-screen bg-zinc-50">
       <div className="w-full border-b border-zinc-300 bg-zinc-100">
         <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
-          <div className="text-zinc-900 font-serif tracking-wider">SPYGLASS | EDITORIAL DESK</div>
+          <div className="text-zinc-900 font-serif tracking-wider">SPYGLASS: THE REPORTER&apos;S DESK</div>
           <div className="flex items-center gap-2">
             <button
               onClick={handleStartNewStory}
@@ -76,7 +101,22 @@ export default function DashboardPage() {
         </div>
       </div>
       <div className="max-w-5xl mx-auto px-6 py-6">
-        {stories.length === 0 ? (
+        {error ? (
+          <div className="h-[70vh] flex items-center justify-center">
+            <div className="text-center max-w-md">
+              <div className="text-xl text-red-600 mb-4 font-serif">Database Error</div>
+              <div className="text-sm text-zinc-700 mb-4 font-mono bg-zinc-100 p-4 rounded border border-zinc-300">
+                {error}
+              </div>
+              <button
+                onClick={() => window.location.reload()}
+                className="inline-flex items-center gap-2 px-5 py-3 rounded bg-zinc-50 text-zinc-950 hover:bg-white border border-zinc-300"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : stories.length === 0 ? (
           <div className="h-[70vh] flex items-center justify-center">
             <div className="text-center">
               <div className="text-2xl text-zinc-900 mb-4 font-serif">Good Morning, Reporter. The wire is active.</div>

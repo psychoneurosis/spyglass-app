@@ -209,7 +209,7 @@ export default function StoryCanvas({ nodes, edges, onNodesChange, onEdgesChange
     (async () => {
       try {
         const c = await getStory(String(resolvedId));
-        setActiveStory({ id: c.id, title: c.title, centralQuestion: c.centralQuestion, status: c.status });
+        setActiveStory({ id: c.id, title: c.title, centralQuestion: c.title, status: c.status });
         const graph = await getStoryGraph(String(resolvedId));
         const flowNodes: Node[] = (graph.nodes as NodeRecord[]).map(n => ({
           id: n.id,
@@ -243,26 +243,13 @@ export default function StoryCanvas({ nodes, edges, onNodesChange, onEdgesChange
 
   return (
     <div
-      className="w-full h-full bg-zinc-950"
+      className="w-full h-full min-h-0 relative"
+      style={{ backgroundColor: '#f9f8f4' }}
       onContextMenu={(e) => {
         e.preventDefault();
         handleDeleteSelected();
       }}
     >
-      <div className="pointer-events-none absolute inset-0 z-50 overflow-hidden">
-         <div className="w-full h-[2px] bg-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.5)] animate-scan" />
-      </div>
-      <style>{`
-         @keyframes scan {
-             0% { transform: translateY(-10vh); opacity: 0; }
-             10% { opacity: 1; }
-             90% { opacity: 1; }
-             100% { transform: translateY(110vh); opacity: 0; }
-         }
-         .animate-scan {
-             animation: scan 8s linear infinite;
-         }
-      `}</style>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -278,8 +265,8 @@ export default function StoryCanvas({ nodes, edges, onNodesChange, onEdgesChange
         onInit={setRfInstance}
         fitView
       >
-        <Background color="#e4e4e7" gap={16} />
-        <Controls className="bg-zinc-100 border-zinc-300 fill-zinc-900" />
+        <Background color="#e5e7eb" gap={16} />
+        <Controls className="bg-amber-50 border-amber-200 fill-zinc-900 font-serif" />
         <MiniMap 
             nodeStrokeColor={(n) => {
                 if (n.style?.background) return n.style.background as string;

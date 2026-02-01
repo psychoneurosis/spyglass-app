@@ -1,5 +1,5 @@
 "use client";
-import { Search, Folder, User, Sparkles, Plus, MapPin, User as UserIcon, Trash2, LayoutGrid, FileDown, FileText, Briefcase, Database } from "lucide-react";
+import { Search, Folder, Sparkles, Plus, MapPin, User as UserIcon, Trash2, LayoutGrid, FileDown, FileText, Briefcase, Database } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import type { Node, Edge } from "reactflow";
 type NodeData = { label?: string; timestamp?: string; note?: string; [key: string]: unknown };
@@ -60,12 +60,6 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
   const [references, setReferences] = useState<{ id: string; name: string; type: string; url?: string; textPreview?: string; fullText?: string }[]>([]);
   const [isCrawling, setIsCrawling] = useState(false);
 
-  useEffect(() => {
-    if (defaultOpenIngest) {
-      setActiveTab('discovery');
-    }
-  }, [defaultOpenIngest]);
-
   const onSwitchCase = onSwitchCaseProp ?? (() => { console.log("Switch Case clicked"); });
   const logoutSafe = onLogout ?? (() => {});
 
@@ -99,7 +93,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
     if (!inputText.trim()) return;
     setIsCrawling(true);
 
-    let textsToAnalyze: { content: string; sourceName: string; sourceFile?: string }[] = [];
+    const textsToAnalyze: { content: string; sourceName: string; sourceFile?: string }[] = [];
     
     // Check uploaded sources first
     if (sources.length > 0) {
@@ -273,7 +267,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
         groups[key].push(e);
     });
 
-    Object.entries(groups).forEach(([key, group]) => {
+    Object.entries(groups).forEach(([, group]) => {
         const primary = group[0];
         const conflicts: NonNullable<SuggestedEntity['conflicts']> = [];
 
@@ -468,8 +462,8 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
   });
 
   return (
-    <div className="w-[300px] h-screen bg-zinc-950 border-r border-[#991b1b] text-white flex flex-col shadow-xl flex-shrink-0">
-      <div className="p-4 border-b border-[#991b1b]/20">
+    <div className="w-[260px] h-screen flex flex-col overflow-hidden bg-amber-50 border-r border-amber-200 text-zinc-900 shadow-xl flex-shrink-0">
+      <div className="p-4 border-b border-amber-200">
         <div className="mb-3">
           <div className="bg-zinc-900 border border-zinc-800 rounded px-3 py-2">
             <div className="text-[10px] uppercase tracking-wider text-zinc-500">Story Objective</div>
@@ -528,9 +522,9 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
           )}
         </div>
         {isMounted && investigatorName && (
-           <div className="text-[10px] font-bold tracking-widest text-zinc-500 mb-1">COMMANDER: {investigatorName.toUpperCase()}</div>
+           <div className="text-[10px] font-bold tracking-widest text-zinc-600 mb-1 font-serif">COMMANDER: {investigatorName.toUpperCase()}</div>
         )}
-        <h1 className="text-xl font-bold tracking-wider text-white font-mono">{isMounted ? callsign : 'WAR ROOM'}</h1>
+        <h1 className="text-xl font-bold tracking-wider text-zinc-900 font-serif">{isMounted ? callsign : 'WAR ROOM'}</h1>
         {isMounted && caseInfo?.name && (
           <div className="mt-3 text-sm text-zinc-300">
             <div className="font-semibold">Active Story</div>
@@ -542,8 +536,8 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
         )}
       </div>
       
-      <div className="flex-1 py-4 flex flex-col overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-800">
-        <nav className="flex items-center gap-1 px-3 mb-6 border-b border-zinc-800 pb-2">
+      <div className="flex-1 py-2 flex flex-col min-h-0 overflow-hidden">
+        <nav className="flex items-center gap-1 px-4 mb-6 border-b border-zinc-800 pb-2">
           <button 
             onClick={() => setActiveTab('discovery')}
             className={`flex-1 flex items-center justify-center gap-2 px-2 py-2 rounded-t-lg transition-colors text-xs font-medium ${activeTab === 'discovery' ? 'bg-zinc-900 text-white border-b-2 border-[#991b1b]' : 'text-zinc-500 hover:text-zinc-300'}`}
@@ -569,218 +563,208 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
           </button>
         </nav>
 
-        {/* Evidence Locker (Intel Tab) */}
-        {activeTab === 'intel' && (
-        <div className="px-4 mb-6">
-          <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Evidence Locker</div>
-          <div className="space-y-2">
+        <div className="flex-grow min-h-0 overflow-y-auto">
+          {activeTab === 'intel' && (
+            <div className="px-4">
+              <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 font-serif">Evidence Locker</div>
               <label className="w-full flex items-center justify-center gap-2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded border border-zinc-800 transition-colors text-sm cursor-pointer">
                 <FileText className="w-4 h-4" />
                 Upload Image/PDF
                 <input type="file" accept=".pdf,.txt,image/*" className="hidden" onChange={handleUploadReference} />
               </label>
 
-            {references.length > 0 && (
-              <div className="space-y-2">
-                {references.map(ref => (
-                  <button
-                    key={ref.id}
-                    onClick={() => spawnDocumentNode(ref)}
-                    className="w-full flex items-center justify-between p-2 bg-zinc-900 border border-zinc-800 rounded text-sm hover:bg-zinc-800 transition-colors"
-                    title="Spawn Document Node"
-                  >
-                    <div className="flex items-center gap-2 overflow-hidden">
-                      <FileText className="w-4 h-4 text-blue-400 flex-shrink-0" />
-                      <span className="truncate text-zinc-300">{ref.name}</span>
-                    </div>
-                    <Plus className="w-4 h-4 text-zinc-400" />
-                  </button>
-                ))}
+              <div className="mt-3 pr-1 space-y-2 max-h-[180px] overflow-y-auto">
+                {references.length === 0 ? (
+                  <div className="text-zinc-500 text-sm italic text-center py-4">No evidence on file.</div>
+                ) : (
+                  references.map(ref => (
+                    <button
+                      key={ref.id}
+                      onClick={() => spawnDocumentNode(ref)}
+                      className="w-full flex items-center justify-between p-2 bg-zinc-900 border border-zinc-800 rounded text-sm hover:bg-zinc-800 transition-colors"
+                      title="Spawn Document Node"
+                    >
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <FileText className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                        <span className="truncate text-zinc-300">{ref.name}</span>
+                      </div>
+                      <Plus className="w-4 h-4 text-zinc-400" />
+                    </button>
+                  ))
+                )}
               </div>
-            )}
-          </div>
-        </div>
-        )}
+            </div>
+          )}
 
-        {/* Shadow Ledger (Sources Tab) */}
-        {activeTab === 'sources' && (
-        <div className="px-4 mb-6">
-            <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Source Files</div>
-            <label className="w-full flex items-center justify-center gap-2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded border border-zinc-800 transition-colors text-sm cursor-pointer mb-3">
+          {activeTab === 'sources' && (
+            <div className="px-4">
+              <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 font-serif">Source Files</div>
+              <label className="w-full flex items-center justify-center gap-2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded border border-zinc-800 transition-colors text-sm cursor-pointer">
                 <FileText className="w-4 h-4" />
                 Upload Source (.txt, .pdf)
                 <input type="file" accept=".pdf,.txt" className="hidden" onChange={handleUploadSource} />
-            </label>
-            {sources.length === 0 ? (
-                <div className="text-zinc-500 text-sm italic text-center py-4">No active sources.<br/>Using mock data.</div>
-            ) : (
-                <div className="space-y-2">
-                    {sources.map(s => (
-                        <div key={s.id} className="flex items-center justify-between p-2 bg-zinc-900 border border-zinc-800 rounded text-sm">
-                            <div className="flex items-center gap-2 overflow-hidden">
-                                <FileText className="w-4 h-4 text-zinc-500 flex-shrink-0" />
-                                <span className="truncate text-zinc-300">{s.name}</span>
-                            </div>
-                            <button onClick={() => handleDeleteSource(s.id)} className="text-zinc-500 hover:text-red-500">
-                                <Trash2 className="w-4 h-4" />
-                            </button>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-        )}
+              </label>
 
-        {/* Discovery Tab Content */}
-        {activeTab === 'discovery' && (
-        <>
-        {/* Suggested Entities */}
-        {suggestions.length > 0 && (
-            <div className="px-4 mb-6">
-                <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Suggested Entities</div>
-                <div className="space-y-2">
-                    {suggestions.map(entity => (
-                        <div key={entity.id} className="flex items-center justify-between bg-zinc-900 border border-zinc-800 p-2 rounded text-sm">
-                            <div className="flex items-center gap-2 overflow-hidden">
-                                {entity.type === 'person' && (
-                                    <UserIcon className="w-4 h-4 text-red-500 flex-shrink-0" />
-                                )}
-                                {entity.type === 'place' && (
-                                    <MapPin className="w-4 h-4 text-white flex-shrink-0" />
-                                )}
-                                {entity.type === 'object' && (
-                                    <Briefcase className="w-4 h-4 text-white flex-shrink-0" />
-                                )}
-                                {entity.type === 'event' && (
-                                    <Sparkles className="w-4 h-4 text-yellow-400 flex-shrink-0" />
-                                )}
-                                <span className="truncate text-zinc-300">
-                                  {(caseInfo?.persona === 'THE ENFORCER') ? (entity.type === 'place' ? 'Location: ' : 'Subject: ') : 
-                                   (caseInfo?.persona === 'THE PROTECTOR') ? (entity.type === 'place' ? 'Meet-up Point: ' : 'Suspect: ') : ''}
-                                  {entity.label}
-                                </span>
-                            </div>
-                            <button 
-                                onClick={() => handleAdd(entity)}
-                                className="p-1 hover:bg-[#991b1b] rounded transition-colors text-zinc-400 hover:text-white"
-                            >
-                                <Plus className="w-4 h-4" />
-                            </button>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        )}
-
-        {/* Discovery Hub */}
-        <div className="px-4 mb-6">
-          <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Discovery Hub</div>
-          <div className="space-y-3">
-            <input
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder="What is the focus of today's inquiry?"
-              className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 text-sm text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-red-900 transition-colors"
-            />
-            <button
-              onClick={handleAnalyzeClick}
-              disabled={!inputText.trim()}
-              className="w-full flex items-center justify-center gap-2 bg-[#991b1b] hover:bg-red-800 text-white py-2 rounded-lg font-medium transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-[0_0_15px_rgba(0,255,255,0.4)] hover:scale-[1.02]"
-            >
-              <Sparkles className="w-4 h-4" />
-              Launch Discovery
-            </button>
-          </div>
-        </div>
-        
-        {/* Intelligence Gaps */}
-        <div className="px-4 mb-6">
-          <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Intelligence Gaps</div>
-          {nodes.length === 0 ? (
-            <div className="text-zinc-500 text-sm">No entities yet.</div>
-          ) : (
-            <>
-              <div className="mb-3">
-                {nodes.filter(n => !edges.some(e => e.source === n.id || e.target === n.id)).length === 0 ? (
-                  <div className="text-zinc-500 text-sm">No orphaned nodes.</div>
+              <div className="mt-3 pr-1 space-y-2">
+                {sources.length === 0 ? (
+                  <div className="text-zinc-500 text-sm italic text-center py-4">No active sources.<br/>Using mock data.</div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    {nodes.filter(n => !edges.some(e => e.source === n.id || e.target === n.id)).map(n => {
-                      const d = n.data as NodeData;
-                      return (
-                        <div key={n.id} className="flex items-center gap-2 bg-zinc-900/50 p-1.5 rounded border border-zinc-800/50 overflow-hidden">
-                            {n.type === 'person' && <UserIcon className="w-3 h-3 text-red-500 flex-shrink-0" />}
-                            {n.type === 'place' && <MapPin className="w-3 h-3 text-white flex-shrink-0" />}
-                            {n.type === 'object' && <Briefcase className="w-3 h-3 text-white flex-shrink-0" />}
-                            {n.type === 'event' && <Sparkles className="w-3 h-3 text-yellow-400 flex-shrink-0" />}
-                            {n.type === 'document' && <FileText className="w-3 h-3 text-blue-400 flex-shrink-0" />}
-                            <span className="truncate text-xs text-zinc-400">{String(d?.label || '')}</span>
+                  sources.map(s => (
+                    <div key={s.id} className="flex items-center justify-between p-2 bg-zinc-900 border border-zinc-800 rounded text-sm">
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <FileText className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+                        <span className="truncate text-zinc-300">{s.name}</span>
+                      </div>
+                      <button onClick={() => handleDeleteSource(s.id)} className="text-zinc-500 hover:text-red-500">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'discovery' && (
+            <div>
+              <div className="px-4">
+                <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 font-serif">Discovery Hub</div>
+                <div className="space-y-3">
+                  <input
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    placeholder="What is the focus of today's inquiry?"
+                    className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 text-sm text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-red-900 transition-colors"
+                  />
+                  <button
+                    onClick={handleAnalyzeClick}
+                    disabled={!inputText.trim()}
+                    className="w-full flex items-center justify-center gap-2 bg-[#991b1b] hover:bg-red-800 text-white py-2 rounded-lg font-medium transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-[0_0_15px_rgba(0,255,255,0.4)] hover:scale-[1.02]"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    Launch Discovery
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 max-h-[180px] overflow-y-auto">
+                {suggestions.length > 0 && (
+                  <div className="px-4 mb-6">
+                    <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 font-serif">Suggested Entities</div>
+                    <div className="space-y-2 pr-1">
+                      {suggestions.map(entity => (
+                        <div key={entity.id} className="flex items-center justify-between bg-zinc-900 border border-zinc-800 p-2 rounded text-sm">
+                          <div className="flex items-center gap-2 overflow-hidden">
+                            {entity.type === 'person' && <UserIcon className="w-4 h-4 text-red-500 flex-shrink-0" />}
+                            {entity.type === 'place' && <MapPin className="w-4 h-4 text-white flex-shrink-0" />}
+                            {entity.type === 'object' && <Briefcase className="w-4 h-4 text-white flex-shrink-0" />}
+                            {entity.type === 'event' && <Sparkles className="w-4 h-4 text-yellow-400 flex-shrink-0" />}
+                            <span className="truncate text-zinc-300">
+                              {(caseInfo?.persona === 'THE ENFORCER') ? (entity.type === 'place' ? 'Location: ' : 'Subject: ') :
+                               (caseInfo?.persona === 'THE PROTECTOR') ? (entity.type === 'place' ? 'Meet-up Point: ' : 'Suspect: ') : ''}
+                              {entity.label}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleAdd(entity)}
+                            className="p-1 hover:bg-[#991b1b] rounded transition-colors text-zinc-400 hover:text-white"
+                          >
+                            <Plus className="w-4 h-4" />
+                          </button>
                         </div>
-                      );
-                    })}
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="px-4 mb-6">
+                  <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 font-serif">Intelligence Gaps</div>
+                  {nodes.length === 0 ? (
+                    <div className="text-zinc-500 text-sm">No entities yet.</div>
+                  ) : (
+                    <>
+                      <div className="mb-3">
+                        {nodes.filter(n => !edges.some(e => e.source === n.id || e.target === n.id)).length === 0 ? (
+                          <div className="text-zinc-500 text-sm">No orphaned nodes.</div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2">
+                            {nodes.filter(n => !edges.some(e => e.source === n.id || e.target === n.id)).map(n => {
+                              const d = n.data as NodeData;
+                              return (
+                                <div key={n.id} className="flex items-center gap-2 bg-zinc-900/50 p-1.5 rounded border border-zinc-800/50 overflow-hidden">
+                                  {n.type === 'person' && <UserIcon className="w-3 h-3 text-red-500 flex-shrink-0" />}
+                                  {n.type === 'place' && <MapPin className="w-3 h-3 text-white flex-shrink-0" />}
+                                  {n.type === 'object' && <Briefcase className="w-3 h-3 text-white flex-shrink-0" />}
+                                  {n.type === 'event' && <Sparkles className="w-3 h-3 text-yellow-400 flex-shrink-0" />}
+                                  {n.type === 'document' && <FileText className="w-3 h-3 text-blue-400 flex-shrink-0" />}
+                                  <span className="truncate text-xs text-zinc-400">{String(d?.label || '')}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          const orphans = nodes.filter(n => !edges.some(e => e.source === n.id || e.target === n.id));
+                          if (orphans.length >= 2) {
+                            const a = String((orphans[0].data as NodeData)?.label || '');
+                            const b = String((orphans[1].data as NodeData)?.label || '');
+                            window.dispatchEvent(new CustomEvent('spyglass-highlight-node', { detail: { label: a } }));
+                            window.dispatchEvent(new CustomEvent('spyglass-highlight-node', { detail: { label: b } }));
+                          }
+                        }}
+                        className="w-full flex items-center justify-center gap-2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded border border-zinc-800 transition-all duration-300 text-sm hover:shadow-[0_0_15px_rgba(0,255,255,0.4)] hover:scale-[1.02] hover:text-cyan-400 hover:border-cyan-900"
+                      >
+                        <LayoutGrid className="w-4 h-4" />
+                        Investigate Story Connection
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                <div className="px-4 mb-6">
+                  <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 font-serif">Editorial Desk Actions</div>
+                  {nodes.length === 0 ? (
+                    <div className="text-zinc-500 text-sm">No recommendations available.</div>
+                  ) : (
+                    <div className="space-y-1">
+                      {nodes
+                        .filter(n => !edges.some(e => e.source === n.id || e.target === n.id))
+                        .map(n => {
+                          const d = n.data as NodeData;
+                          const lbl = String(d?.label || '');
+                          const obj = String(caseInfo?.objective || '').trim();
+                          const msg = obj ? `Investigate ${lbl}'s connection to ${obj}.` : `Investigate ${lbl}'s connections.`;
+                          return (
+                            <div key={n.id} className="text-zinc-300 text-sm">{msg}</div>
+                          );
+                        })}
+                      {nodes.filter(n => !edges.some(e => e.source === n.id || e.target === n.id)).length === 0 && (
+                        <div className="text-zinc-500 text-sm">All entities have connections.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {isCrawling && (
+                  <div className="px-4 mb-3">
+                    <div className="w-full bg-zinc-900 border border-zinc-800 rounded px-3 py-2 text-xs text-white">
+                      CRAWLING SHADOW FILES...
+                    </div>
                   </div>
                 )}
               </div>
-              <button
-                onClick={() => {
-                  const orphans = nodes.filter(n => !edges.some(e => e.source === n.id || e.target === n.id));
-                  if (orphans.length >= 2) {
-                    const a = String((orphans[0].data as NodeData)?.label || '');
-                    const b = String((orphans[1].data as NodeData)?.label || '');
-                    window.dispatchEvent(new CustomEvent('spyglass-highlight-node', { detail: { label: a } }));
-                    window.dispatchEvent(new CustomEvent('spyglass-highlight-node', { detail: { label: b } }));
-                  }
-                }}
-                className="w-full flex items-center justify-center gap-2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded border border-zinc-800 transition-all duration-300 text-sm hover:shadow-[0_0_15px_rgba(0,255,255,0.4)] hover:scale-[1.02] hover:text-cyan-400 hover:border-cyan-900"
-              >
-                <LayoutGrid className="w-4 h-4" />
-                Investigate Story Connection
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* Recommended Actions */}
-        <div className="px-4 mb-6">
-            <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Editorial Desk Actions</div>
-          {nodes.length === 0 ? (
-            <div className="text-zinc-500 text-sm">No recommendations available.</div>
-          ) : (
-            <div className="space-y-1">
-              {nodes
-                .filter(n => !edges.some(e => e.source === n.id || e.target === n.id))
-                .map(n => {
-                  const d = n.data as NodeData;
-                  const lbl = String(d?.label || '');
-                  const obj = String(caseInfo?.objective || '').trim();
-                  const msg = obj ? `Investigate ${lbl}'s connection to ${obj}.` : `Investigate ${lbl}'s connections.`;
-                  return (
-                    <div key={n.id} className="text-zinc-300 text-sm">{msg}</div>
-                  );
-                })}
-              {nodes.filter(n => !edges.some(e => e.source === n.id || e.target === n.id)).length === 0 && (
-                <div className="text-zinc-500 text-sm">All entities have connections.</div>
-              )}
             </div>
           )}
         </div>
-        </>
-        )}
-        
-        {isCrawling && (
-          <div className="px-4 mb-3">
-            <div className="w-full bg-zinc-900 border border-zinc-800 rounded px-3 py-2 text-xs text-white">
-              CRAWLING SHADOW FILES...
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Action Buttons */}
-      <div className="p-4 border-t border-zinc-900 space-y-2">
+      <div className="p-4 border-t border-zinc-200/50 space-y-2">
         <button
           onClick={onOrganize}
-          className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white py-2 rounded-lg text-sm font-medium transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,255,255,0.4)] hover:scale-[1.02]"
+          className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white py-2 rounded-lg text-sm font-medium transition-colors"
         >
           <LayoutGrid className="w-4 h-4" />
           Organize Board
@@ -802,7 +786,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
         
         <button
           onClick={onExport}
-          className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white py-2 rounded-lg text-sm font-medium transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,255,255,0.4)] hover:scale-[1.02]"
+          className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white py-2 rounded-lg text-sm font-medium transition-colors"
         >
           <FileDown className="w-4 h-4" />
           Export Investigation

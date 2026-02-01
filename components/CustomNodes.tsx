@@ -1,6 +1,6 @@
 import React, { memo, useMemo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { Search as SearchIcon, FileText, Clock, User as UserIcon, MapPin, Calendar, Lightbulb } from 'lucide-react';
+import { Search as SearchIcon, FileText, Clock, User as UserIcon, Calendar, Lightbulb } from 'lucide-react';
 import { Colors } from '@/lib/constants';
 
 type DocData = {
@@ -10,8 +10,10 @@ type DocData = {
   previewUrl?: string;
   textPreview?: string;
   fullText?: string;
+  originSentence?: string;
+  sourceFile?: string;
   conflicts?: any[];
-  onInspect?: (payload: { type: string; url?: string; text?: string; label: string; conflicts?: any[] }) => void;
+  onInspect?: (payload: { type: string; url?: string; text?: string; label: string; originSentence?: string; sourceFile?: string; conflicts?: any[] }) => void;
 };
 
 function hexToRgba(hex: string, alpha: number) {

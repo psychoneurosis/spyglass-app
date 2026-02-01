@@ -1,26 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Chrome } from "lucide-react";
 import { signInWithGoogle } from "@/lib/supabase";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
-  const [method, setMethod] = useState<"google" | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-
-  useEffect(() => {
-    // no-op
-  }, []);
 
   const handleGoogleAuth = async () => {
     setLoading(true);
     setError("");
-    setSuccess("");
     try {
       await signInWithGoogle();
     } catch (e: any) {
@@ -34,8 +25,8 @@ export default function LoginPage() {
     <div className="min-h-screen w-screen bg-zinc-950 flex items-center justify-center p-6">
       <div className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-6">
         <div className="mb-6 text-center">
-          <div className="text-2xl font-serif text-zinc-100 tracking-widest">SPYGLASS</div>
-          <div className="text-zinc-400 text-sm font-serif">THE REPORTER'S DESK</div>
+          <div className="text-2xl font-serif text-zinc-100 tracking-widest">SPYGLASS: THE REPORTER&apos;S DESK</div>
+          <div className="text-zinc-400 text-sm font-serif">Secure workspace for the Indian Press Corps.</div>
         </div>
 
         <div className="flex mb-4 border-b border-zinc-800">
@@ -57,10 +48,7 @@ export default function LoginPage() {
 
         <div className="space-y-3">
           <button
-            onClick={() => {
-              setMethod("google");
-              handleGoogleAuth();
-            }}
+            onClick={handleGoogleAuth}
             disabled={loading}
             className="w-full flex items-center justify-center gap-2 bg-white text-zinc-900 rounded px-4 py-2 hover:bg-zinc-200 transition-colors"
           >
@@ -70,7 +58,6 @@ export default function LoginPage() {
         </div>
 
         {error && <div className="mt-3 text-sm text-red-500">{error}</div>}
-        {success && <div className="mt-3 text-sm text-emerald-500">{success}</div>}
       </div>
     </div>
   );

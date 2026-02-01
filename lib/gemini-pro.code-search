@@ -1,0 +1,9 @@
+# Query: gemini-pro
+# ContextLines: 1
+
+1 result - 1 file
+
+spyglass-app\lib\ai-service.ts:
+  21  // Use gemini-1.5-flash for stable v1beta API support
+  22: export const geminiPro = genAI ? genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }) : null;
+  23  

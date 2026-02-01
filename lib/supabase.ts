@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 export type StoryRecord = {
   id: string;
   title: string;
-  centralQuestion: string;
+  centralQuestion?: string;
   status: 'active' | 'cold' | 'solved';
   createdAt: string;
   updatedAt: string;
@@ -79,6 +79,7 @@ export async function signInWithEmailOtp(email: string) {
 export async function signInWithGoogle() {
   return supabase.auth.signInWithOAuth({
     provider: 'google',
+    options: { redirectTo: window.location.origin + '/auth/callback', skipBrowserRedirect: false },
   });
 }
 
@@ -109,7 +110,6 @@ export async function createStory(userId: string, payload: Partial<StoryRecord>)
   const row = {
     user_id: userId,
     title: payload.title || 'Untitled Story',
-    centralQuestion: payload.centralQuestion || '',
     status: payload.status || 'active',
     createdAt: now,
     updatedAt: now,
