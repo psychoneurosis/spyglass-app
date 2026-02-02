@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '@/lib/supabase';
+import ViabilityPanel from '@/components/journalism/ViabilityPanel';
 
 // --- Types ---
 
-export type Phase = 'AUTHENTICATION' | 'INVESTIGATOR_INTAKE' | 'CASE_ROUTER' | 'CASE_INTAKE' | 'CANVAS';
+export type Phase = 'AUTHENTICATION' | 'INVESTIGATOR_INTAKE' | 'STORY_ROUTER' | 'STORY_INTAKE' | 'CANVAS';
 
 export interface Investigator {
   id: string; // email
@@ -27,6 +27,7 @@ export interface Story {
   evidence_maturity: string;
   desired_outcome: string;
   last_opened_at: number;
+  story_stage?: 'viability_assessment' | 'background_research' | 'source_development' | 'verification' | 'writing' | 'published';
   canvas_state?: { nodes: unknown[]; edges: unknown[] };
 }
 
@@ -35,55 +36,43 @@ export interface Story {
 interface TerminalEntryProps {
   currentPhase: Phase;
   onPhaseChange: (phase: Phase) => void;
-  onCaseSelected: (caseId: string) => void;
+  onStorySelected: (storyId: string) => void;
   onInvestigatorUpdate: (investigator: Investigator) => void;
 }
 
 export default function TerminalEntry({ 
   currentPhase, 
   onPhaseChange, 
-  onCaseSelected,
+  onStorySelected,
   onInvestigatorUpdate
 }: TerminalEntryProps) {
   void currentPhase;
   void onPhaseChange;
-  void onCaseSelected;
+  void onStorySelected;
   void onInvestigatorUpdate;
   const [headline, setHeadline] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [submittedIdea, setSubmittedIdea] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus input on mount
   useEffect(() => {
+    if (submittedIdea) return;
     inputRef.current?.focus();
-  }, []);
+  }, [submittedIdea]);
 
   const handleEnter = async (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && headline.trim()) {
-      setIsProcessing(true);
       try {
-        try {
-          const bell = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-typewriter-bell-1473.mp3');
-          bell.play().catch(() => {});
-        } catch {}
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase.from('stories').insert({
-            title: headline.trim(),
-            user_id: user.id,
-            status: 'active'
-          });
-          window.location.assign('/dashboard');
-        } else {
-            console.error("No user found");
-            window.location.assign('/auth/login');
-        }
-      } catch (error) {
-        console.error(error);
-        setIsProcessing(false);
-      }
+        const bell = new Audio('/mixkit-typewriter-bell-1473.mp3');
+        bell.play().catch(() => {});
+      } catch {}
+      setSubmittedIdea(headline.trim());
     }
   };
+
+  if (submittedIdea) {
+    return <ViabilityPanel storyIdea={submittedIdea} />;
+  }
 
   return (
     <div className="w-full max-w-2xl mx-auto p-6">
@@ -97,12 +86,10 @@ export default function TerminalEntry({
         value={headline}
         onChange={(e) => setHeadline(e.target.value)}
         onKeyDown={handleEnter}
-        disabled={isProcessing}
         className="w-full bg-transparent text-xl md:text-2xl font-serif text-zinc-900 placeholder:text-zinc-400 border-b-2 border-zinc-300 focus:border-zinc-900 outline-none py-2 transition-colors"
       />
       <div className="mt-4 text-xs text-zinc-400 font-mono flex justify-between">
         <span>PRESS ENTER TO INITIALIZE WIRE</span>
-        {isProcessing && <span className="animate-pulse">TRANSMITTING...</span>}
       </div>
     </div>
   );

@@ -25,7 +25,7 @@ export default function LoginPage() {
     <div className="min-h-screen w-screen bg-zinc-950 flex items-center justify-center p-6">
       <div className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-6">
         <div className="mb-6 text-center">
-          <div className="text-2xl font-serif text-zinc-100 tracking-widest">SPYGLASS: THE REPORTER&apos;S DESK</div>
+          <img src="/spyglass-white.png" alt="Spyglass" className="h-5 w-auto mx-auto" />
           <div className="text-zinc-400 text-sm font-serif">Secure workspace for the Indian Press Corps.</div>
         </div>
 

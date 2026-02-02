@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSpyglassStore } from '@/lib/store';
-import { analyzeCaseState, SuggestedAction } from '@/lib/ai-service';
+import { analyzeStoryState, SuggestedAction } from '@/lib/ai-service';
 
 export function useAIAnalysis() {
   const nodes = useSpyglassStore(s => s.nodes);
@@ -11,9 +11,9 @@ export function useAIAnalysis() {
   const [insights, setLocalInsights] = useState<SuggestedAction[]>([]);
   useEffect(() => {
     const t = setTimeout(async () => {
-      const caseData = { ...activeStory, nodes, edges };
+      const storyData = { ...activeStory, nodes, edges };
       setLoading(true);
-      const res = await analyzeCaseState(caseData);
+      const res = await analyzeStoryState(storyData);
       setLocalInsights(res.suggestedActions || []);
       const now = new Date().toISOString();
       (res.detectedPatterns || []).forEach((p, i) => {

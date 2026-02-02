@@ -7,6 +7,9 @@ import { useNodesState, useEdgesState } from "reactflow";
 import { useEffect, useState, useRef } from "react";
 import { X, AlertTriangle, Shield } from "lucide-react";
 import { signInWithGoogle, getUser } from "@/lib/supabase";
+import { useSpyglassStore } from "@/lib/store";
+import { generateExecutiveBriefingMarkdown, getExecutiveBriefingFilename } from "@/lib/export-service";
+import { legalPreflight } from "@/lib/ai-journalism";
 
 const initialNodes: any[] = [];
 const initialEdges: any[] = [];
@@ -14,6 +17,9 @@ const initialEdges: any[] = [];
 export default function Home() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const assistantMessages = useSpyglassStore(s => s.assistantMessages);
+  const storyStage = useSpyglassStore(s => s.storyStage);
+  const setStoryStage = useSpyglassStore(s => s.setStoryStage);
   const saveReadyRef = useRef(false);
   const historyRef = useRef<Array<{ nodes: any[]; edges: any[] }>>([]);
   const isRestoringRef = useRef(false);
@@ -22,7 +28,7 @@ export default function Home() {
   // --- State Machine ---
   const [phase, setPhase] = useState<Phase>('AUTHENTICATION');
   const [investigator, setInvestigator] = useState<Investigator | null>(null);
-  const [currentCase, setCurrentCase] = useState<Story | null>(null);
+  const [currentStory, setCurrentStory] = useState<Story | null>(null);
   const [appStatus, setAppStatus] = useState<'landing' | 'onboarding' | 'active'>('landing');
   const [showLogin, setShowLogin] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
@@ -71,7 +77,7 @@ export default function Home() {
             const user = users[userId] as Investigator | undefined;
             if (user) {
                 nextInvestigator = user;
-                nextPhase = user.intake_complete ? 'CASE_ROUTER' : 'INVESTIGATOR_INTAKE';
+                nextPhase = user.intake_complete ? 'STORY_ROUTER' : 'INVESTIGATOR_INTAKE';
             }
         }
         window.setTimeout(() => {
@@ -98,12 +104,12 @@ export default function Home() {
     return () => window.clearTimeout(id);
   }, [authLoading]);
 
-  // --- Case Loading Effect ---
+  // --- Story Loading Effect ---
   useEffect(() => {
-    if (currentCase && currentCase.canvas_state) {
+    if (currentStory && currentStory.canvas_state) {
         window.setTimeout(() => {
-          setNodes((currentCase.canvas_state?.nodes as any) || []);
-          setEdges((currentCase.canvas_state?.edges as any) || []);
+          setNodes((currentStory.canvas_state?.nodes as any) || []);
+          setEdges((currentStory.canvas_state?.edges as any) || []);
           setPhase('CANVAS');
         }, 0);
         
@@ -113,28 +119,48 @@ export default function Home() {
             initializedRef.current = true;
         }, 500);
     }
-  }, [currentCase, setNodes, setEdges]);
+  }, [currentStory, setNodes, setEdges]);
 
   useEffect(() => {
-    if (appStatus === 'onboarding' && phase === 'CASE_ROUTER') {
+    if (!currentStory) return;
+    const stage = currentStory.story_stage;
+    if (stage && stage !== storyStage) {
+      setStoryStage(stage as any);
+    }
+  }, [currentStory, setStoryStage, storyStage]);
+
+  useEffect(() => {
+    if (!currentStory) return;
+    if (!storyStage) return;
+    if (currentStory.story_stage === storyStage) return;
+    const updated = { ...currentStory, story_stage: storyStage as any };
+    window.setTimeout(() => setCurrentStory(updated), 0);
+    const allStories = JSON.parse(localStorage.getItem('spyglass_stories') || '{}');
+    if (allStories[currentStory.id]) {
+      allStories[currentStory.id].story_stage = storyStage;
+      localStorage.setItem('spyglass_stories', JSON.stringify(allStories));
+    }
+  }, [currentStory, storyStage]);
+
+  useEffect(() => {
+    if (appStatus === 'onboarding' && phase === 'STORY_ROUTER') {
       window.setTimeout(() => setAppStatus('active'), 0);
     }
   }, [phase, appStatus]);
 
   // --- Persistence Effect (Canvas Phase) ---
   useEffect(() => {
-    if (phase === 'CANVAS' && saveReadyRef.current && initializedRef.current && currentCase) {
-        // Save to currentCase object in localStorage
-        const allCases = JSON.parse(localStorage.getItem('spyglass_cases') || '{}');
-        if (allCases[currentCase.id]) {
-            allCases[currentCase.id].canvas_state = { nodes, edges };
-            localStorage.setItem('spyglass_cases', JSON.stringify(allCases));
+    if (phase === 'CANVAS' && saveReadyRef.current && initializedRef.current && currentStory) {
+        const allStories = JSON.parse(localStorage.getItem('spyglass_stories') || '{}');
+        if (allStories[currentStory.id]) {
+            allStories[currentStory.id].canvas_state = { nodes, edges };
+            localStorage.setItem('spyglass_stories', JSON.stringify(allStories));
             
             // Also update local state to match (optional but good for consistency)
-            // setCurrentCase(prev => prev ? ({ ...prev, canvas_state: { nodes, edges } }) : null);
+            // setCurrentStory(prev => prev ? ({ ...prev, canvas_state: { nodes, edges } }) : null);
         }
     }
-  }, [nodes, edges, phase, currentCase]);
+  }, [nodes, edges, phase, currentStory]);
 
   // Handle Sources Persistence (Legacy but useful for now)
   const [sources, setSources] = useState<{ id: string; name: string; content: string; type: string }[]>([]);
@@ -154,6 +180,12 @@ export default function Home() {
       if (t === 'event') return 'publication';
       return 'claim';
     };
+    const deriveEvidenceType = (fileType?: string) => {
+      const ft = String(fileType || '').toLowerCase();
+      if (ft.startsWith('image/')) return 'photo' as const;
+      if (ft === 'text/plain' || ft === 'application/pdf') return 'document' as const;
+      return 'data' as const;
+    };
     const newNode = {
       id: `node-${Date.now()}`,
       type: mapType(entity.type as any),
@@ -166,6 +198,15 @@ export default function Home() {
         previewUrl: entity.previewUrl,
         textPreview: entity.textPreview,
         fullText: entity.fullText,
+        ...(mapType(entity.type as any) === 'source'
+          ? { role: '', credibility: 3 as const, anonymity: false, contactInfo: '', quotes: [] as string[] }
+          : {}),
+        ...(mapType(entity.type as any) === 'claim'
+          ? { statement: entity.label, verificationStatus: 'unverified' as const, factCheckNotes: '' }
+          : {}),
+        ...(mapType(entity.type as any) === 'evidence'
+          ? { evidenceType: deriveEvidenceType(entity.fileType), acquisitionMethod: 'public_record' as const, legalClearance: false }
+          : {}),
         onInspect: (payload: { type: string; url?: string; text?: string; label: string }) => {
           setFileIntel(payload);
         }
@@ -205,6 +246,12 @@ export default function Home() {
     // Prepare new nodes and label->id map
     const newNodes: any[] = [];
     const labelToId: Record<string, string> = {};
+    const deriveEvidenceType = (fileType?: string) => {
+      const ft = String(fileType || '').toLowerCase();
+      if (ft.startsWith('image/')) return 'photo' as const;
+      if (ft === 'text/plain' || ft === 'application/pdf') return 'document' as const;
+      return 'data' as const;
+    };
     // Start with existing nodes
     Object.entries(existingMap).forEach(([lbl, n]) => {
       labelToId[lbl] = n.id;
@@ -233,9 +280,10 @@ export default function Home() {
           if (t === 'event') return 'publication';
           return 'claim';
         };
+        const nodeType = mapType2(entity.type as any);
         newNodes.push({
           id,
-          type: mapType2(entity.type as any),
+          type: nodeType,
           position: { x: Math.random() * 400 + 100, y: Math.random() * 400 + 100 },
           data: {
             label: entity.label,
@@ -246,6 +294,15 @@ export default function Home() {
             textPreview: entity.textPreview,
             fullText: entity.fullText,
             conflicts: entity.conflicts,
+            ...(nodeType === 'source'
+              ? { role: '', credibility: 3 as const, anonymity: false, contactInfo: '', quotes: [] as string[] }
+              : {}),
+            ...(nodeType === 'claim'
+              ? { statement: entity.label, verificationStatus: 'unverified' as const, factCheckNotes: '' }
+              : {}),
+            ...(nodeType === 'evidence'
+              ? { evidenceType: deriveEvidenceType(entity.fileType), acquisitionMethod: 'public_record' as const, legalClearance: false }
+              : {}),
             onInspect: (payload: { type: string; url?: string; text?: string; label: string }) => {
               setFileIntel(payload);
             }
@@ -315,12 +372,12 @@ export default function Home() {
   const handleClear = () => {
     setNodes([]);
     setEdges([]);
-    // Update current case state to blank
-    if (currentCase) {
-        const allCases = JSON.parse(localStorage.getItem('spyglass_cases') || '{}');
-        if (allCases[currentCase.id]) {
-            allCases[currentCase.id].canvas_state = { nodes: [], edges: [] };
-            localStorage.setItem('spyglass_cases', JSON.stringify(allCases));
+    // Update current story state to blank
+    if (currentStory) {
+        const allStories = JSON.parse(localStorage.getItem('spyglass_stories') || '{}');
+        if (allStories[currentStory.id]) {
+            allStories[currentStory.id].canvas_state = { nodes: [], edges: [] };
+            localStorage.setItem('spyglass_stories', JSON.stringify(allStories));
         }
     }
   };
@@ -421,68 +478,114 @@ export default function Home() {
     setEdges(snapshot.edges);
   };
 
-  const handleExport = () => {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    let mdContent = `# Spyglass Investigative Report\nGenerated: ${new Date().toLocaleString()}\n\n`;
-    
-    if (currentCase) {
-      mdContent += `## Active Story\n- Title: **${currentCase.title}**\n- Central Question: **${currentCase.core_question}**\n`;
-      if (currentCase.desired_outcome) mdContent += `- Desired Outcome: _${currentCase.desired_outcome}_\n`;
-      mdContent += `\n`;
-    }
+  const handleExport = async () => {
+    const title = currentStory?.title || "Story";
+    const potentialLeaks: string[] = [];
 
-    mdContent += `## Entities (${nodes.length})\n\n`;
-    
-    // Group by type
-    const sources = nodes.filter(n => n.type === 'source');
-    if (sources.length > 0) {
-      mdContent += `### Sources\n`;
-      sources.forEach(p => {
-        mdContent += `- **${(p.data as any).label}**\n  - Source: _"${(p.data as any).source}"_\n`;
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const evidenceLinkedToClaim = (claimId: string) => {
+      const linkedIds = new Set<string>();
+      edges.forEach((e: any) => {
+        const a = String(e.source || "");
+        const b = String(e.target || "");
+        if (a === claimId) linkedIds.add(b);
+        if (b === claimId) linkedIds.add(a);
       });
-      mdContent += `\n`;
-    }
-    
-    const evidence = nodes.filter(n => n.type === 'evidence');
-    if (evidence.length > 0) {
-      mdContent += `### Evidence\n`;
-      evidence.forEach(d => {
-        mdContent += `- **${(d.data as any).label}**\n  - Source: _"${(d.data as any).source}"_\n`;
+      let count = 0;
+      linkedIds.forEach((id) => {
+        const n = byId.get(id);
+        if (n && String((n as any).type) === "evidence") count += 1;
       });
-      mdContent += `\n`;
-    }
-    
-    const claims = nodes.filter(n => n.type === 'claim');
-    if (claims.length > 0) {
-      mdContent += `### Claims\n`;
-      claims.forEach(d => {
-        mdContent += `- **${(d.data as any).label}**\n  - Source: _"${(d.data as any).source}"_\n`;
+      return count;
+    };
+
+    const claims = nodes
+      .filter((n) => String(n.type) === "claim")
+      .map((n) => {
+        const d = (n.data as any) || {};
+        const sources = [
+          ...(Array.isArray(d.sources) ? d.sources : []),
+          d.source,
+        ]
+          .map((x: any) => String(x || "").trim())
+          .filter(Boolean);
+        return {
+          id: String(n.id),
+          statement: String(d.statement || d.label || ""),
+          stamp: d.stamp ? String(d.stamp) : null,
+          verificationStatus: d.verificationStatus ? String(d.verificationStatus) : null,
+          evidenceLinks: evidenceLinkedToClaim(String(n.id)),
+          hasSources: sources.length > 0,
+          rightToReplyContacted: d.rightToReplyContacted === true,
+        };
       });
-      mdContent += `\n`;
-    }
-    const publications = nodes.filter(n => n.type === 'publication');
-    if (publications.length > 0) {
-      mdContent += `### Publications\n`;
-      publications.forEach(d => {
-        mdContent += `- **${(d.data as any).label}**\n  - Source: _"${(d.data as any).source}"_\n`;
-      });
-      mdContent += `\n`;
-    }
-    
-    mdContent += `## Connections (${edges.length})\n\n`;
-    edges.forEach(e => {
-      const sourceNode = nodes.find(n => n.id === e.source);
-      const targetNode = nodes.find(n => n.id === e.target);
-      if (sourceNode && targetNode) {
-        mdContent += `- **${sourceNode.data.label}** --[${e.label || 'related to'}]--> **${targetNode.data.label}**\n`;
+
+    const anonymousSources = nodes
+      .filter((n) => String(n.type) === "source")
+      .map((n) => {
+        const d = (n.data as any) || {};
+        const protectedOrAnon = d.anonymity === true || d.protectIdentity === true;
+        if (!protectedOrAnon) return null;
+        const contact = String(d.contactInfo || "").trim();
+        return {
+          id: String(n.id),
+          nameHint: String(d.label || ""),
+          hasPlainContactInfo: Boolean(contact),
+        };
+      })
+      .filter(Boolean) as Array<{ id: string; nameHint?: string; hasPlainContactInfo: boolean }>;
+
+    const mdPreview = generateExecutiveBriefingMarkdown({
+      storyTitle: title,
+      nodes: nodes as any,
+      edges: edges as any,
+      messages: assistantMessages as any,
+    });
+    const emailsInExport = mdPreview.match(/[^\s@]+@[^\s@]+\.[^\s@]+/g) || [];
+    const phonesInExport = mdPreview.match(/(?:\+?\d[\d\s\-()]{7,}\d)/g) || [];
+    [...emailsInExport, ...phonesInExport].forEach((x) => potentialLeaks.push(String(x)));
+
+    const ai = await legalPreflight({ storyTitle: title, claims, anonymousSources, potentialLeaks: Array.from(new Set(potentialLeaks)).slice(0, 25) });
+    const deterministicBlockers: string[] = [];
+    claims.forEach((c) => {
+      if (String(c.stamp || "").toLowerCase() === "high_risk" && c.evidenceLinks === 0 && !c.hasSources) {
+        deterministicBlockers.push(`High-risk claim lacks corroboration: "${c.statement || c.id}"`);
       }
     });
-    
-    const blob = new Blob([mdContent], { type: 'text/markdown' });
+    anonymousSources.forEach((s) => {
+      if (s.hasPlainContactInfo) deterministicBlockers.push("Anonymous/protected source has plaintext contact info in graph.");
+    });
+    if (new Set(potentialLeaks).size > 0) {
+      deterministicBlockers.push("Potential contact info detected in export text.");
+    }
+
+    const blockers = [...new Set([...(ai?.blockers || []), ...deterministicBlockers])];
+    const warnings = ai?.warnings || [];
+    const requiredRedactions = ai?.requiredRedactions || [];
+    const allowExport = ai ? ai.allowExport && blockers.length === 0 : blockers.length === 0;
+
+    if (!allowExport) {
+      const msg = [
+        "LEGAL PRE-FLIGHT: EXPORT BLOCKED",
+        blockers.length ? `\nBlockers:\n- ${blockers.join("\n- ")}` : "",
+        requiredRedactions.length ? `\nRequired redactions:\n- ${requiredRedactions.join("\n- ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      window.alert(msg);
+      return;
+    }
+
+    if (warnings.length) {
+      const ok = window.confirm(`LEGAL PRE-FLIGHT WARNINGS:\n- ${warnings.join("\n- ")}\n\nProceed with export?`);
+      if (!ok) return;
+    }
+
+    const blob = new Blob([mdPreview], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `investigation-report-${timestamp}.md`;
+    a.download = getExecutiveBriefingFilename(title);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -509,37 +612,39 @@ export default function Home() {
     }
   };
 
-  const handleCaseSelected = (caseId: string) => {
-      const allCases = JSON.parse(localStorage.getItem('spyglass_cases') || '{}');
-      const selected = allCases[caseId];
+  const handleStorySelected = (storyId: string) => {
+      const allStories = JSON.parse(localStorage.getItem('spyglass_stories') || '{}');
+      const selected = allStories[storyId];
       if (selected) {
           // Update last opened
           selected.last_opened_at = Date.now();
-          allCases[caseId] = selected;
-          localStorage.setItem('spyglass_cases', JSON.stringify(allCases));
+          allStories[storyId] = selected;
+          localStorage.setItem('spyglass_stories', JSON.stringify(allStories));
           
-          setCurrentCase(selected);
-          // Phase change happens in useEffect when currentCase is set
+          setCurrentStory(selected);
+          setStoryStage((selected as any).story_stage || null);
           setAppStatus('active');
       }
   };
 
-  const handleSwitchCase = () => {
-      setPhase('CASE_ROUTER');
-      setCurrentCase(null);
+  const handleSwitchStory = () => {
+      setPhase('STORY_ROUTER');
+      setCurrentStory(null);
       setNodes([]);
       setEdges([]);
+      setStoryStage(null);
   };
 
   const handleLogout = () => {
       if (window.confirm("Are you sure you want to log out? This will wipe your local session.")) {
         localStorage.clear();
         setInvestigator(null);
-        setCurrentCase(null);
+        setCurrentStory(null);
         setNodes([]);
         setEdges([]);
         setPhase('AUTHENTICATION');
         setAppStatus('landing');
+        setStoryStage(null);
       }
   };
 
@@ -599,7 +704,7 @@ export default function Home() {
           <>
               <div className="max-w-md w-full px-6 py-8 bg-zinc-100 border border-zinc-300 rounded">
                 <div className="text-center mb-6">
-                  <div className="text-zinc-900 text-sm font-serif">SPYGLASS: THE REPORTER&apos;S DESK</div>
+                  <img src="/spyglass.png" alt="Spyglass" className="h-5 w-auto mx-auto" />
                   <div className="text-zinc-700 text-xs mt-1 font-serif">Secure workspace for the Indian Press Corps.</div>
                 </div>
                 {authError ? (
@@ -613,7 +718,7 @@ export default function Home() {
                     onClick={handleOpenLogin}
                   >
                     <Shield className="w-4 h-4 text-zinc-900" />
-                    SPYGLASS SECURE AUTH
+                    SECURE AUTH
                   </button>
                 </div>
               </div>
@@ -621,7 +726,7 @@ export default function Home() {
                 <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/20">
                   <div className="w-full max-w-md bg-zinc-100 border border-zinc-300 rounded p-6">
                     <div className="flex items-center justify-between mb-4">
-                      <div className="text-zinc-900 font-serif text-sm">SPYGLASS SECURE AUTH</div>
+                      <div className="text-zinc-900 font-serif text-sm">SECURE AUTH</div>
                       <button className="text-zinc-700 hover:text-zinc-900" onClick={handleCloseLogin}>
                         <X className="w-5 h-5" />
                       </button>
@@ -632,7 +737,7 @@ export default function Home() {
                         onClick={handleGoogleLogin}
                       >
                         <Shield className="w-4 h-4 text-zinc-900" />
-                        SPYGLASS SECURE AUTH
+                        SECURE AUTH
                       </button>
                     </div>
                   </div>
@@ -649,7 +754,7 @@ export default function Home() {
       <TerminalEntry 
           currentPhase={phase}
           onPhaseChange={setPhase}
-          onCaseSelected={handleCaseSelected}
+          onStorySelected={handleStorySelected}
           onInvestigatorUpdate={setInvestigator}
       />
     );
@@ -660,7 +765,7 @@ export default function Home() {
           <TerminalEntry 
               currentPhase={phase}
               onPhaseChange={setPhase}
-              onCaseSelected={handleCaseSelected}
+              onStorySelected={handleStorySelected}
               onInvestigatorUpdate={setInvestigator}
           />
       );
@@ -674,10 +779,10 @@ export default function Home() {
         onClear={handleClear}
         onOrganize={handleOrganize}
         onExport={handleExport}
-        caseInfo={currentCase ? {
-            name: currentCase.title,
+        storyInfo={currentStory ? {
+            name: currentStory.title,
             persona: 'THE ENFORCER', // Default or derive from user profile
-            objective: currentCase.core_question
+            objective: currentStory.core_question
         } : undefined}
         existingLabels={nodes.map(n => String((n.data as any)?.label || '').trim())}
         onDraftBriefing={handleDraftBriefing}
@@ -688,9 +793,9 @@ export default function Home() {
         investigatorName={investigator?.name || 'Journalist'}
         sources={sources}
         onUpdateSources={setSources}
-        onSwitchCase={handleSwitchCase}
+        onSwitchStory={handleSwitchStory}
         onLogout={handleLogout}
-        defaultOpenIngest={currentCase?.starting_material === 'INGEST'}
+        defaultOpenIngest={currentStory?.starting_material === 'INGEST'}
       />
       <div className="flex-1 h-full">
         <StoryCanvas 

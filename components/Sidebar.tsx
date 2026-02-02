@@ -1,7 +1,11 @@
 "use client";
-import { Search, Folder, Sparkles, Plus, MapPin, User as UserIcon, Trash2, LayoutGrid, FileDown, FileText, Briefcase, Database } from "lucide-react";
+import { Search, Folder, Sparkles, Plus, MapPin, User as UserIcon, Trash2, LayoutGrid, FileDown, FileText, Briefcase, Database, Shield } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import type { Node, Edge } from "reactflow";
+import { useSpyglassStore } from "@/lib/store";
+import { supabase, updateStory as updateStoryInDb } from "@/lib/supabase";
+import SourceManager from "@/components/journalism/SourceManager";
+import EthicsChecklist from "@/components/journalism/EthicsChecklist";
 type NodeData = { label?: string; timestamp?: string; note?: string; [key: string]: unknown };
 const SHADOW_LEDGER = "At 02:15 AM, a suspect known as 'The Ghost' was seen disabling security at The Sapphire Vault. 'The Ghost' was carrying a specialized EMP Device. Moments later, 'The Ghost' met with an insider known as 'Leo' inside the vault. Leo was spotted at the Vault around 02:00 AM.";
 
@@ -34,7 +38,7 @@ interface SidebarProps {
   onClear: () => void;
   onOrganize: () => void;
   onExport: () => void;
-  caseInfo?: {
+  storyInfo?: {
     name: string;
     persona: 'THE PROTECTOR' | 'THE MUCKRAKER' | 'THE ENFORCER' | 'THE VIGILANTE';
     objective?: string;
@@ -48,20 +52,42 @@ interface SidebarProps {
   investigatorName?: string;
   sources?: { id: string; name: string; content: string; type: string }[];
   onUpdateSources?: (sources: { id: string; name: string; content: string; type: string }[]) => void;
-  onSwitchCase?: () => void;
+  onSwitchStory?: () => void;
   onLogout?: () => void;
   defaultOpenIngest?: boolean;
 }
 
-export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrganize, onExport, caseInfo, existingLabels = [], onDraftBriefing, onToggleTimeline, onUndo, nodes = [], edges = [], investigatorName, sources = [], onUpdateSources, onSwitchCase: onSwitchCaseProp, onLogout, defaultOpenIngest = true }: SidebarProps) {
+export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrganize, onExport, storyInfo, existingLabels = [], onDraftBriefing, onToggleTimeline, onUndo, nodes = [], edges = [], investigatorName, sources = [], onUpdateSources, onSwitchStory: onSwitchStoryProp, onLogout, defaultOpenIngest = true }: SidebarProps) {
   const [inputText, setInputText] = useState("");
-  const [activeTab, setActiveTab] = useState<'discovery' | 'sources' | 'intel'>(defaultOpenIngest ? 'discovery' : 'intel');
+  const [activeTab, setActiveTab] = useState<'discovery' | 'sources' | 'ethics' | 'intel'>(defaultOpenIngest ? 'discovery' : 'intel');
   const [suggestions, setSuggestions] = useState<SuggestedEntity[]>([]);
   const [references, setReferences] = useState<{ id: string; name: string; type: string; url?: string; textPreview?: string; fullText?: string }[]>([]);
   const [isCrawling, setIsCrawling] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
+  const resetStore = useSpyglassStore(s => s.resetStore);
+  const clearStoryState = useSpyglassStore(s => s.clearStoryState);
+  const isRedacted = useSpyglassStore(s => s.isRedacted);
+  const setIsRedacted = useSpyglassStore(s => s.setIsRedacted);
+  const activeStory = useSpyglassStore(s => s.activeStory);
+  const updateActiveStory = useSpyglassStore(s => s.updateStory);
+  const storyStage = useSpyglassStore(s => s.storyStage);
+  const setStoryStage = useSpyglassStore(s => s.setStoryStage);
 
-  const onSwitchCase = onSwitchCaseProp ?? (() => { console.log("Switch Case clicked"); });
-  const logoutSafe = onLogout ?? (() => {});
+  void onSwitchStoryProp;
+  void onLogout;
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {}
+    resetStore();
+    window.location.href = '/auth/login';
+  };
+
+  const handleSwitchStory = () => {
+    clearStoryState();
+    window.location.href = '/dashboard';
+  };
 
   const handleUploadSource = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -415,10 +441,10 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
   }, []);
   const callsign =
     isMounted
-      ? (caseInfo?.persona === 'THE PROTECTOR' ? 'STAKEOUT LOG' :
-         caseInfo?.persona === 'THE MUCKRAKER' ? 'THE LEAD SHEET' :
-         caseInfo?.persona === 'THE ENFORCER' ? 'EVIDENCE REGISTER' :
-         caseInfo?.persona === 'THE VIGILANTE' ? 'WAR ROOM' :
+      ? (storyInfo?.persona === 'THE PROTECTOR' ? 'STAKEOUT LOG' :
+         storyInfo?.persona === 'THE MUCKRAKER' ? 'THE LEAD SHEET' :
+         storyInfo?.persona === 'THE ENFORCER' ? 'EVIDENCE REGISTER' :
+         storyInfo?.persona === 'THE VIGILANTE' ? 'WAR ROOM' :
          'WAR ROOM')
       : 'WAR ROOM';
 
@@ -462,27 +488,59 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
   });
 
   return (
-    <div className="w-[260px] h-screen flex flex-col overflow-hidden bg-amber-50 border-r border-amber-200 text-zinc-900 shadow-xl flex-shrink-0">
-      <div className="p-4 border-b border-amber-200">
+    <div id="spyglass-sidebar" className="w-[260px] h-screen flex flex-col overflow-hidden bg-brand-parchment border-r border-zinc-200 text-zinc-900 shadow-xl flex-shrink-0">
+      <div className="px-4 py-3 bg-brand-green border-b border-brand-green/40 text-white">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            {!logoFailed ? (
+              <img
+                src="/spyglass-white.png"
+                alt="Spyglass"
+                className="h-5 w-auto"
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <div className="text-sm font-black tracking-[0.28em]">SPYGLASS</div>
+            )}
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-amber-50/90 font-mono truncate">The Reporter&apos;s Desk</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="p-4 border-b border-zinc-200">
         <div className="mb-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-600 font-mono">Privacy Mode</div>
+            <button
+              type="button"
+              aria-pressed={isRedacted}
+              onClick={() => setIsRedacted(!isRedacted)}
+              className={`relative w-10 h-5 rounded-full border transition-colors ${isRedacted ? 'bg-black border-black' : 'bg-amber-100 border-amber-300'}`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full transition-transform ${isRedacted ? 'bg-white translate-x-5' : 'bg-zinc-900/70 translate-x-0'}`}
+              />
+            </button>
+          </div>
           <div className="bg-zinc-900 border border-zinc-800 rounded px-3 py-2">
             <div className="text-[10px] uppercase tracking-wider text-zinc-500">Story Objective</div>
             <div className="text-sm text-white font-mono">{
-              (caseInfo?.objective && caseInfo.objective.trim())
-                ? caseInfo.objective
+              (storyInfo?.objective && storyInfo.objective.trim())
+                ? storyInfo.objective
                 : ''
             }</div>
           </div>
           
           <div className="flex gap-2 mt-2">
             <button 
-                onClick={onSwitchCase}
+                onClick={handleSwitchStory}
                 className="flex-1 bg-zinc-900 border border-zinc-700 hover:border-zinc-500 text-[10px] uppercase text-zinc-400 hover:text-white py-1 rounded transition-all"
             >
-                Switch Story
+                All Stories
             </button>
             <button 
-                onClick={logoutSafe}
+                onClick={handleLogout}
                 className="flex-1 bg-zinc-900 border border-zinc-700 hover:border-red-900 text-[10px] uppercase text-zinc-400 hover:text-red-400 py-1 rounded transition-all"
             >
                 Log Out
@@ -525,12 +583,39 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
            <div className="text-[10px] font-bold tracking-widest text-zinc-600 mb-1 font-serif">COMMANDER: {investigatorName.toUpperCase()}</div>
         )}
         <h1 className="text-xl font-bold tracking-wider text-zinc-900 font-serif">{isMounted ? callsign : 'WAR ROOM'}</h1>
-        {isMounted && caseInfo?.name && (
+        {isMounted && storyInfo?.name && (
           <div className="mt-3 text-sm text-zinc-300">
             <div className="font-semibold">Active Story</div>
-            <div className="truncate">{caseInfo.name}</div>
+            <div className="truncate">{storyInfo.name}</div>
             <div className="text-[11px] text-zinc-500">
-              Persona: {caseInfo.persona}{caseInfo.objective ? ` • Objective: ${caseInfo.objective}` : ''}
+              Persona: {storyInfo.persona}{storyInfo.objective ? ` • Objective: ${storyInfo.objective}` : ''}
+            </div>
+            <div className="mt-2">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Story Stage</div>
+              <select
+                value={storyStage || ''}
+                onChange={(e) => {
+                  const v = String(e.target.value || '');
+                  if (!v) {
+                    setStoryStage(null);
+                    return;
+                  }
+                  setStoryStage(v as any);
+                  if (activeStory?.id) {
+                    updateActiveStory({ story_stage: v as any });
+                    void updateStoryInDb(activeStory.id, { story_stage: v as any }).catch(() => {});
+                  }
+                }}
+                className="w-full bg-zinc-900/60 border border-zinc-800 rounded px-2 py-2 text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-white/20"
+              >
+                <option value="">Select stage…</option>
+                <option value="viability_assessment">Viability Assessment</option>
+                <option value="background_research">Background Research</option>
+                <option value="source_development">Source Development</option>
+                <option value="verification">Verification</option>
+                <option value="writing">Writing</option>
+                <option value="published">Published</option>
+              </select>
             </div>
           </div>
         )}
@@ -540,7 +625,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
         <nav className="flex items-center gap-1 px-4 mb-6 border-b border-zinc-800 pb-2">
           <button 
             onClick={() => setActiveTab('discovery')}
-            className={`flex-1 flex items-center justify-center gap-2 px-2 py-2 rounded-t-lg transition-colors text-xs font-medium ${activeTab === 'discovery' ? 'bg-zinc-900 text-white border-b-2 border-[#991b1b]' : 'text-zinc-500 hover:text-zinc-300'}`}
+            className={`flex-1 flex items-center justify-center gap-2 px-2 py-2 rounded-t-lg transition-colors text-xs font-medium ${activeTab === 'discovery' ? 'bg-brand-green text-white border-b-2 border-brand-green' : 'text-zinc-600 hover:text-zinc-900 hover:bg-brand-green/10'}`}
           >
             <Search className="w-3 h-3" />
             Discovery
@@ -548,15 +633,23 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
           
           <button 
             onClick={() => setActiveTab('sources')}
-            className={`flex-1 flex items-center justify-center gap-2 px-2 py-2 rounded-t-lg transition-colors text-xs font-medium ${activeTab === 'sources' ? 'bg-zinc-900 text-white border-b-2 border-[#991b1b]' : 'text-zinc-500 hover:text-zinc-300'}`}
+            className={`flex-1 flex items-center justify-center gap-2 px-2 py-2 rounded-t-lg transition-colors text-xs font-medium ${activeTab === 'sources' ? 'bg-brand-green text-white border-b-2 border-brand-green' : 'text-zinc-600 hover:text-zinc-900 hover:bg-brand-green/10'}`}
           >
             <Database className="w-3 h-3" />
             Shadow Ledger
           </button>
+
+          <button 
+            onClick={() => setActiveTab('ethics')}
+            className={`flex-1 flex items-center justify-center gap-2 px-2 py-2 rounded-t-lg transition-colors text-xs font-medium ${activeTab === 'ethics' ? 'bg-brand-green text-white border-b-2 border-brand-green' : 'text-zinc-600 hover:text-zinc-900 hover:bg-brand-green/10'}`}
+          >
+            <Shield className="w-3 h-3" />
+            Ethics
+          </button>
           
           <button 
             onClick={() => setActiveTab('intel')}
-            className={`flex-1 flex items-center justify-center gap-2 px-2 py-2 rounded-t-lg transition-colors text-xs font-medium ${activeTab === 'intel' ? 'bg-zinc-900 text-white border-b-2 border-[#991b1b]' : 'text-zinc-500 hover:text-zinc-300'}`}
+            className={`flex-1 flex items-center justify-center gap-2 px-2 py-2 rounded-t-lg transition-colors text-xs font-medium ${activeTab === 'intel' ? 'bg-brand-green text-white border-b-2 border-brand-green' : 'text-zinc-600 hover:text-zinc-900 hover:bg-brand-green/10'}`}
           >
             <Folder className="w-3 h-3" />
             Intel
@@ -596,8 +689,17 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
             </div>
           )}
 
+          {activeTab === 'ethics' && (
+            <div className="px-4">
+              <EthicsChecklist nodes={nodes} />
+            </div>
+          )}
+
           {activeTab === 'sources' && (
             <div className="px-4">
+              <div className="mb-4">
+                <SourceManager nodes={nodes} />
+              </div>
               <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 font-serif">Source Files</div>
               <label className="w-full flex items-center justify-center gap-2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded border border-zinc-800 transition-colors text-sm cursor-pointer">
                 <FileText className="w-4 h-4" />
@@ -610,7 +712,17 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
                   <div className="text-zinc-500 text-sm italic text-center py-4">No active sources.<br/>Using mock data.</div>
                 ) : (
                   sources.map(s => (
-                    <div key={s.id} className="flex items-center justify-between p-2 bg-zinc-900 border border-zinc-800 rounded text-sm">
+                    <div
+                      key={s.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'copy';
+                        e.dataTransfer.setData('application/spyglass-sourcefile', JSON.stringify({ id: s.id, name: s.name }));
+                        e.dataTransfer.setData('text/plain', String(s.name));
+                      }}
+                      className="flex items-center justify-between p-2 bg-zinc-900 border border-zinc-800 rounded text-sm cursor-grab active:cursor-grabbing"
+                      title="Drag onto a node to attach"
+                    >
                       <div className="flex items-center gap-2 overflow-hidden">
                         <FileText className="w-4 h-4 text-zinc-500 flex-shrink-0" />
                         <span className="truncate text-zinc-300">{s.name}</span>
@@ -639,7 +751,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
                   <button
                     onClick={handleAnalyzeClick}
                     disabled={!inputText.trim()}
-                    className="w-full flex items-center justify-center gap-2 bg-[#991b1b] hover:bg-red-800 text-white py-2 rounded-lg font-medium transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-[0_0_15px_rgba(0,255,255,0.4)] hover:scale-[1.02]"
+                    className="w-full flex items-center justify-center gap-2 bg-brand-green hover:opacity-90 text-white py-2 rounded-lg font-medium transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-[0_0_15px_rgba(0,0,0,0.12)] hover:scale-[1.02]"
                   >
                     <Sparkles className="w-4 h-4" />
                     Launch Discovery
@@ -660,8 +772,8 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
                             {entity.type === 'object' && <Briefcase className="w-4 h-4 text-white flex-shrink-0" />}
                             {entity.type === 'event' && <Sparkles className="w-4 h-4 text-yellow-400 flex-shrink-0" />}
                             <span className="truncate text-zinc-300">
-                              {(caseInfo?.persona === 'THE ENFORCER') ? (entity.type === 'place' ? 'Location: ' : 'Subject: ') :
-                               (caseInfo?.persona === 'THE PROTECTOR') ? (entity.type === 'place' ? 'Meet-up Point: ' : 'Suspect: ') : ''}
+                              {(storyInfo?.persona === 'THE ENFORCER') ? (entity.type === 'place' ? 'Location: ' : 'Subject: ') :
+                               (storyInfo?.persona === 'THE PROTECTOR') ? (entity.type === 'place' ? 'Meet-up Point: ' : 'Suspect: ') : ''}
                               {entity.label}
                             </span>
                           </div>
@@ -734,7 +846,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
                         .map(n => {
                           const d = n.data as NodeData;
                           const lbl = String(d?.label || '');
-                          const obj = String(caseInfo?.objective || '').trim();
+                          const obj = String(storyInfo?.objective || '').trim();
                           const msg = obj ? `Investigate ${lbl}'s connection to ${obj}.` : `Investigate ${lbl}'s connections.`;
                           return (
                             <div key={n.id} className="text-zinc-300 text-sm">{msg}</div>
@@ -774,7 +886,7 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
           className="w-full flex items-center justify-center gap-2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded border border-zinc-800 transition-colors text-sm"
         >
           <LayoutGrid className="w-4 h-4" />
-          Timeline View
+          Show Timeline
         </button>
         <button
           onClick={onUndo}
@@ -786,14 +898,14 @@ export default function Sidebar({ onAddEntity, onLaunchDiscovery, onClear, onOrg
         
         <button
           onClick={onExport}
-          className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white py-2 rounded-lg text-sm font-medium transition-colors"
+          className="w-full flex items-center justify-center gap-2 bg-brand-green hover:opacity-90 text-white py-2 rounded-lg text-sm font-medium transition-colors"
         >
           <FileDown className="w-4 h-4" />
-          Export Investigation
+          Export Briefing
         </button>
         <button
           onClick={onDraftBriefing}
-          className="w-full flex items-center justify-center gap-2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded border border-zinc-800 transition-colors text-sm"
+          className="w-full flex items-center justify-center gap-2 bg-brand-green hover:opacity-90 text-white py-2 rounded-lg text-sm font-medium transition-colors"
         >
           <Sparkles className="w-4 h-4" />
           Draft Briefing

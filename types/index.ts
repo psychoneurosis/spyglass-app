@@ -17,7 +17,7 @@ export interface Story {
   userId: UUID;
   public_interest_score: number;
   ethical_concerns?: string;
-  story_stage: 'viability_assessment' | 'background_research' | 'source_development' | 'verification' | 'writing' | 'published' | 'follow_up';
+  story_stage: 'viability_assessment' | 'background_research' | 'source_development' | 'verification' | 'writing' | 'published';
 }
 
 export interface Position {
@@ -97,12 +97,15 @@ export interface SourceNode {
   type: 'source';
   position: Position;
   data: {
-    name: string;
-    credibility: number; // 0-100
-    affiliation?: string;
-    contact?: string;
-    notes?: string;
-    anonymity?: 'none' | 'requested' | 'promised';
+    label: string;
+    role: string;
+    credibility: 1 | 2 | 3 | 4 | 5;
+    anonymity: boolean;
+    contactInfo: string;
+    quotes: string[];
+    protectIdentity?: boolean;
+    protectedName?: string;
+    protectedContactInfo?: string;
     createdAt?: string;
   };
 }
@@ -113,11 +116,13 @@ export interface ClaimNode {
   type: 'claim';
   position: Position;
   data: {
-    text: string;
-    verificationStatus: 'unverified' | 'corroborated' | 'refuted' | 'in_progress';
-    originSourceId?: UUID;
-    timestamp?: string;
-    relatedEvidenceIds?: UUID[];
+    label: string;
+    statement: string;
+    verificationStatus: 'unverified' | 'verified' | 'debunked' | 'partially_true';
+    factCheckNotes: string;
+    rightToReplyContacted?: boolean;
+    rightToReplyDeadline?: string;
+    rightToReplyResponse?: string;
   };
 }
 
@@ -141,11 +146,10 @@ export interface EvidenceNode {
   type: 'evidence';
   position: Position;
   data: {
-    kind: 'document' | 'image' | 'audio' | 'video' | 'dataset' | 'other';
-    description: string;
-    provenance?: string;
-    verified: boolean;
+    label: string;
+    evidenceType: 'document' | 'photo' | 'data';
+    acquisitionMethod: 'FOIA' | 'leak' | 'public_record';
+    legalClearance: boolean;
     attachments?: Attachment[];
-    sourceId?: UUID;
   };
 }

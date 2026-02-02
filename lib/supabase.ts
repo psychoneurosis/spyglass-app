@@ -11,7 +11,7 @@ export type StoryRecord = {
   storyStrength?: number;
   public_interest_score?: number;
   ethical_concerns?: string;
-  story_stage?: 'viability_assessment' | 'background_research' | 'source_development' | 'verification' | 'writing' | 'published' | 'follow_up';
+  story_stage?: 'viability_assessment' | 'background_research' | 'source_development' | 'verification' | 'writing' | 'published';
   fact_check_status?: string;
   metadata?: unknown;
 };
@@ -29,10 +29,24 @@ export type NodeRecord = {
     metadata?: unknown;
     confidence?: number;
     verified?: boolean;
+    stamp?: 'verified' | 'corroborated' | 'high_risk';
+    eventDate?: string;
+    sources?: string[];
     source?: string;
     createdAt?: string;
     aiExtracted?: boolean;
     attachments?: unknown[];
+    role?: string;
+    credibility?: 1 | 2 | 3 | 4 | 5;
+    anonymity?: boolean;
+    contactInfo?: string;
+    quotes?: string[];
+    statement?: string;
+    verificationStatus?: 'unverified' | 'verified' | 'debunked' | 'partially_true';
+    factCheckNotes?: string;
+    evidenceType?: 'document' | 'photo' | 'data';
+    acquisitionMethod?: 'FOIA' | 'leak' | 'public_record';
+    legalClearance?: boolean;
   };
 };
 
@@ -116,7 +130,7 @@ export async function createStory(userId: string, payload: Partial<StoryRecord>)
     storyStrength: payload.storyStrength ?? 0,
     public_interest_score: payload.public_interest_score ?? 0,
     ethical_concerns: payload.ethical_concerns ?? '',
-    story_stage: payload.story_stage || 'background_research',
+    story_stage: payload.story_stage || 'viability_assessment',
     fact_check_status: payload.fact_check_status ?? 'PENDING EDITORIAL REVIEW',
     metadata: payload.metadata ?? null,
   };
@@ -136,9 +150,17 @@ export async function listStoriesByUser(userId: string) {
 }
 
 export async function getStoryById(id: string) {
-  const { data, error } = await supabase.from('stories').select('*').eq('id', id).single();
+  const { data, error } = await supabase
+    .from('stories')
+    .select('*')
+    .eq('id', id)
+    .single();
   if (error) throw error;
-  return data as StoryRecord;
+  return {
+    ...(data as any),
+    story_stage: (data as any)?.story_stage || (data as any)?.stage || 'viability_assessment',
+    metadata: (data as any)?.metadata || {},
+  } as unknown as StoryRecord;
 }
 
 export async function getStory(id: string) {
@@ -155,6 +177,19 @@ export async function updateStory(id: string, changes: Partial<StoryRecord>) {
 export async function deleteStory(id: string) {
   const { error } = await supabase.from('stories').delete().eq('id', id);
   if (error) throw error;
+}
+
+export async function deleteStoryById(id: string) {
+  const { error: eErr } = await supabase.from('edges').delete().eq('storyId', id);
+  if (eErr) throw eErr;
+  const { error: nErr } = await supabase.from('nodes').delete().eq('storyId', id);
+  if (nErr) throw nErr;
+  const { error: tErr } = await supabase.from('timeline_events').delete().eq('storyId', id);
+  if (tErr) throw tErr;
+  const { error: iErr } = await supabase.from('ai_insights').delete().eq('storyId', id);
+  if (iErr) throw iErr;
+  const { error: sErr } = await supabase.from('stories').delete().eq('id', id);
+  if (sErr) throw sErr;
 }
 
 export async function upsertNodes(nodes: NodeRecord[]) {
